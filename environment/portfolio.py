@@ -76,7 +76,8 @@ class DataGenerator(object):
             self.idx = date_to_index(self.start_date,self.timestamp_all) - self.start_idx
             assert self.idx >= self.window_length and self.idx <= self._data.shape[1] - self.steps, \
                 'Invalid start date, must be window_length day after start date and simulation steps day before end date'
-        print('Start date: {}'.format(index_to_date(self.idx, self.timestamp_all)))
+        print('Start date: {}, End date：{}'.format(index_to_date(self.idx, self.timestamp_all),
+                                                    index_to_date(self.idx+self.steps, self.timestamp_all)))
         data = self._data[:, self.idx - self.window_length:self.idx + self.steps + 1, :4]
         # apply augmentation?
         self.data = data

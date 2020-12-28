@@ -72,7 +72,14 @@ class ActorNetwork(object):
         self.actor_gradients = list(map(lambda x: tf.div(x, self.batch_size), self.unnormalized_actor_gradients))
 
         # Optimization Op
-        self.optimize = tf.train.AdamOptimizer(self.learning_rate). \
+
+        self.lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+                                                    self.learning_rate,
+                                                    decay_steps=config['training']['episode']*config['training']['max step'],
+                                                    decay_rate=0.96,
+                                                    staircase=True)
+
+        self.optimize = tf.keras.optimizers.Adam(self.lr_schedule). \
             apply_gradients(zip(self.actor_gradients, self.network_params))
 
         self.num_trainable_vars = len(self.network_params) + len(self.target_network_params)

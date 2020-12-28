@@ -17,8 +17,10 @@ def build_summaries():
     tf.summary.scalar("Reward", episode_reward)
     episode_ave_max_q = tf.Variable(0.)
     tf.summary.scalar("Qmax_Value", episode_ave_max_q)
+    episode_loss = tf.Variable(0.)
+    tf.summary.scalar("target loss", episode_loss)
 
-    summary_vars = [episode_reward, episode_ave_max_q]
+    summary_vars = [episode_reward, episode_ave_max_q, episode_loss]
     summary_ops = tf.summary.merge_all()
 
     return summary_ops, summary_vars
@@ -100,6 +102,7 @@ class DDPG(BaseModel):
 
             ep_reward = 0
             ep_ave_max_q = 0
+            ep_loss = 0
             # keeps sampling until done
             for j in range(self.config['training']['max step']):
                 action = self.actor.predict(np.expand_dims(previous_observation, axis=0)).squeeze(
@@ -132,11 +135,11 @@ class DDPG(BaseModel):
                             y_i.append(r_batch[k] + gamma * target_q[k])
 
                     # Update the critic given the targets
-                    predicted_q_value, _ = self.critic.train(
-                        s_batch, a_batch, np.reshape(y_i, (batch_size, 1)))
+                    predicted_q_value, step_loss, _ = self.critic.train(
+                                s_batch, a_batch, np.reshape(y_i, (batch_size, 1)))
 
                     ep_ave_max_q += np.amax(predicted_q_value)
-
+                    ep_loss += np.mean(step_loss)
                     # Update the actor policy using the sampled gradient
                     a_outs = self.actor.predict(s_batch)
                     grads = self.critic.action_gradients(s_batch, a_outs)
@@ -152,13 +155,15 @@ class DDPG(BaseModel):
                 if done or j == self.config['training']['max step'] - 1:
                     summary_str = self.sess.run(self.summary_ops, feed_dict={
                         self.summary_vars[0]: ep_reward,
-                        self.summary_vars[1]: ep_ave_max_q / float(j)
+                        self.summary_vars[1]: ep_ave_max_q / float(j),
+                        self.summary_vars[2]: ep_loss / float(j)
                     })
 
                     writer.add_summary(summary_str, i)
                     writer.flush()
 
-                    print('Episode: {:d}, Reward: {:.2f}, Qmax: {:.4f}'.format(i, ep_reward, (ep_ave_max_q / float(j))))
+                    print('Episode: {:d}, Reward: {:.2f}, Qmax: {:.4f}, target_predict_loss: {:.4f}'.format(
+                            i, ep_reward, (ep_ave_max_q / float(j)),(ep_loss / float(j))))
                     break
 
         self.save_model(verbose=True)

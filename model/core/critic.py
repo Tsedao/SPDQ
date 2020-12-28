@@ -51,9 +51,17 @@ class CriticNetwork(object):
 
         # Define loss and optimization Op
         self.loss = tf.keras.losses.mean_squared_error(self.target_q_value, self.out)
-        
-        self.optimize = tf.train.AdamOptimizer(
-            self.learning_rate).minimize(self.loss)
+
+
+        self.lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+                                                    self.learning_rate,
+                                                    decay_steps=config['training']['episode']*config['training']['max step'],
+                                                    decay_rate=0.96,
+                                                    staircase=True)
+
+        self.loss_gradients = tf.gradients(self.loss, self.network_params)
+        self.optimize = tf.keras.optimizers.Adam(
+            self.lr_schedule).apply_gradients(zip(self.loss_gradients,self.network_params))
 
         # Get the gradient of the net w.r.t. the action.
         # For each action in the minibatch (i.e., for each x in xs),
@@ -66,7 +74,7 @@ class CriticNetwork(object):
         raise NotImplementedError('Create critic should return (inputs, action, out)')
 
     def train(self, inputs, action, target_q_value):
-        return self.sess.run([self.out, self.optimize], feed_dict={
+        return self.sess.run([self.out, self.loss, self.optimize], feed_dict={
             self.inputs: inputs,
             self.action: action,
             self.target_q_value: target_q_value

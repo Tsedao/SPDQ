@@ -26,7 +26,7 @@ class StockCritic(CriticNetwork):
             target_q_value:
         """
         inputs = inputs[:, :, -self.window_size:, :]
-        return self.sess.run([self.out, self.optimize], feed_dict={
+        return self.sess.run([self.out, self.loss, self.optimize], feed_dict={
             self.inputs: inputs,
             self.action: action,
             self.target_q_value: target_q_value
