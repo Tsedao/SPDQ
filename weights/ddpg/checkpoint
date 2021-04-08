@@ -1,2 +1,0 @@
-model_checkpoint_path: "window_10_batch_norm_normalized_eps_500_checkpoint.ckpt"
-all_model_checkpoint_paths: "window_10_batch_norm_normalized_eps_500_checkpoint.ckpt"
