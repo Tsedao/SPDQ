@@ -27,7 +27,7 @@ def max_drawdown(returns):
 class DataGenerator(object):
     """Acts as data provider for each new episode."""
 
-    def __init__(self, history, abbreviation, timestamp, steps=730, window_length=50, start_idx=0, start_date=None):
+    def __init__(self, history, abbreviation, timestamp, steps=730, window_length=50, start_idx=0, start_date=None,feature_num=4):
         """
         Args:
             history: (num_stocks, timestamp, 5) open, high, low, close, volume
@@ -47,7 +47,7 @@ class DataGenerator(object):
         self.start_date = start_date
 
         # make immutable class
-        self._data = history.copy()  # all data
+        self._data = history.copy()[...,:feature_num]  # all data
         self.asset_names = copy.copy(abbreviation)
         self.timestamp_all = timestamp
 
@@ -76,9 +76,10 @@ class DataGenerator(object):
             self.idx = date_to_index(self.start_date,self.timestamp_all) - self.start_idx
             assert self.idx >= self.window_length and self.idx <= self._data.shape[1] - self.steps, \
                 'Invalid start date, must be window_length day after start date and simulation steps day before end date'
-        print('Start date: {}, End date：{}'.format(index_to_date(self.idx, self.timestamp_all),
-                                                    index_to_date(self.idx+self.steps, self.timestamp_all)))
-        data = self._data[:, self.idx - self.window_length:self.idx + self.steps + 1, :4]
+        self.__start_date = index_to_date(self.idx, self.timestamp_all)
+        self.__end_date = index_to_date(self.idx+self.steps, self.timestamp_all)
+        print('Start date: %s, End date: %s' %(self.__start_date,self.__end_date))
+        data = self._data[:, self.idx - self.window_length:self.idx + self.steps + 1, :]
         # apply augmentation?
         self.data = data
         # self.timestamp = self.timestamp[self.idx - self.window_length:self.idx + self.steps + 1]
@@ -103,19 +104,26 @@ class PortfolioSim(object):
         self.belta = belta
         self.onestep_rewards = [0]
 
-    def _step(self, w1, v1):
+    def _step(self, w1, v1, v2):
         """
         Step.
+        w0 - previous action
         w1 - new action of portfolio weights - e.g. [0.1,0.9,0.0]
-        v1 - price relative vector also called return
+        v1 - price relative vector 1: also called return close/open
             e.g. [1.0, 0.9, 1.1]
+        v2 - price relative vector 2: close/ pre_close
+            for the purpose of calculate market_value
         Numbered equations are from https://arxiv.org/abs/1706.10059
         """
         assert w1.shape == v1.shape, 'w1 and y1 must have the same shape'
         assert v1[0] == 1.0, 'y1[0] must be 1'
 
+        v0 = v2 / v1  # price relative vector 0: open / pre_close
 
         p0 = self.p0
+        w0 = self.w0
+        # passive change
+        p0 = p0 * np.dot(v0,w0)     # change of portfolio_value because of open price not equals to pre close price
 
         dw1 = (v1 * w1) / (np.dot(v1, w1) + eps)  # (eq7) weights evolve into
 
@@ -137,6 +145,7 @@ class PortfolioSim(object):
         r1 = np.log((p1 + eps) / (p0 + eps))  # log rate of return
         # reward = r1 / self.steps * 1000.  # (22) average logarithmic accumulated return
         # remember for next step
+        self.w0 = w1
         self.p0 = p1
 
         # if we run out of money, we're done (losing all the money)
@@ -146,8 +155,9 @@ class PortfolioSim(object):
             "onestep reward penalized by var": r,
             "log_return": r1,
             "portfolio_value": p1,
-            "return": v1.mean(),
+            "return": v2.mean(),
             "rate_of_return": rho1,
+            "weights": w0,
             "weights_mean": w1.mean(),
             "weights_std": w1.std(),
             "cost": mu1,
@@ -158,6 +168,7 @@ class PortfolioSim(object):
     def reset(self):
         self.infos = []
         self.p0 = 1.0
+        self.w0 = np.array([1]+[0 for i in range(len(self.asset_names))])
 
 class PortfolioEnv(gym.Env):
     """
@@ -178,7 +189,8 @@ class PortfolioEnv(gym.Env):
                  time_cost=0.00,
                  window_length=50,
                  start_idx=0,
-                 sample_start_date=None
+                 sample_start_date=None,
+                 feature_num=4
                  ):
         """
         An environment for financial portfolio management.
@@ -199,7 +211,7 @@ class PortfolioEnv(gym.Env):
 
         self.src = DataGenerator(history, abbreviation, timestamp,steps=steps,
                                  window_length=window_length, start_idx=start_idx,
-                                 start_date=sample_start_date)
+                                 start_date=sample_start_date,feature_num=feature_num)
 
         self.sim = PortfolioSim(
             asset_names=abbreviation,
@@ -253,9 +265,12 @@ class PortfolioEnv(gym.Env):
 
         # relative price vector of last observation day (close/pre_close)
         close_price_vector = observation[:, -1, 3]
+        open_price_vector = observation[:, -1, 0]
         pre_close_price_vector = observation[:, -2, 3]
-        y1 = close_price_vector / pre_close_price_vector
-        onestep_r, info, done2 = self.sim._step(weights, y1)
+        y1 = close_price_vector / open_price_vector
+        y2 = close_price_vector / pre_close_price_vector
+
+        onestep_r, info, done2 = self.sim._step(weights, y1, y2)
 
         # calculate return for buy and hold a bit of each asset
         info['market_value'] = np.cumprod([inf["return"] for inf in self.infos + [info]])[-1]
@@ -304,3 +319,104 @@ class PortfolioEnv(gym.Env):
         sharpe_ratio = sharpe(df_info.rate_of_return)
         title = 'max_drawdown={: 2.2%} sharpe_ratio={: 2.4f}'.format(mdd, sharpe_ratio)
         df_info[["portfolio_value", "market_value"]].plot(title=title, fig=plt.gcf(), rot=30)
+
+
+class MultiActionPortfolioEnv(PortfolioEnv):
+    def __init__(self,
+                 history,
+                 abbreviation,
+                 timestamp,
+                 model_names,
+                 window_length = 100,
+                 steps=730,  # 2 years
+                 trading_cost=0.0025,
+                 time_cost=0.00,
+                 start_idx=0,
+                 sample_start_date=None,
+                 ):
+        super(MultiActionPortfolioEnv, self).__init__(history, abbreviation, timestamp, steps, trading_cost, time_cost, window_length,
+                              start_idx, sample_start_date)
+        self.model_names = model_names
+        # need to create each simulator for each model
+        self.sim = [PortfolioSim(
+            asset_names=abbreviation,
+            trading_cost=trading_cost,
+            time_cost=time_cost,
+            steps=steps) for _ in range(len(self.model_names))]
+
+
+    def _step(self, action):
+        """ Step the environment by a vector of actions
+        Args:
+            action: (num_models, num_stocks + 1)
+        Returns:
+        """
+        assert action.ndim == 2, 'Action must be a two dimensional array with shape (num_models, num_stocks + 1)'
+        assert action.shape[1] == len(self.sim[0].asset_names) + 1
+        assert action.shape[0] == len(self.model_names)
+        # normalise just in case
+        action = np.clip(action, 0, 1)
+        weights = action  # np.array([cash_bias] + list(action))  # [w0, w1...]
+        weights /= (np.sum(weights, axis=1, keepdims=True) + eps)
+        # so if weights are all zeros we normalise to [1,0...]
+        weights[:, 0] += np.clip(1 - np.sum(weights, axis=1), 0, 1)
+        assert ((action >= 0) * (action <= 1)).all(), 'all action values should be between 0 and 1. Not %s' % action
+        np.testing.assert_almost_equal(np.sum(weights, axis=1), np.ones(shape=(weights.shape[0])), 3,
+                                       err_msg='weights should sum to 1. action="%s"' % weights)
+        observation, done1, ground_truth_obs = self.src._step()
+
+        # concatenate observation with ones
+        cash_observation = np.ones((1, self.window_length, observation.shape[2]))
+        observation = np.concatenate((cash_observation, observation), axis=0)
+
+        cash_ground_truth = np.ones((1, 1, ground_truth_obs.shape[2]))
+        ground_truth_obs = np.concatenate((cash_ground_truth, ground_truth_obs), axis=0)
+
+        # relative price vector of last observation day (close/open)
+        close_price_vector = observation[:, -1, 3]
+        open_price_vector = observation[:, -1, 0]
+        pre_close_price_vector = observation[:, -2, 3]
+        y1 = close_price_vector / open_price_vector
+        y2 = close_price_vector / pre_close_price_vector
+
+        rewards = np.empty(shape=(weights.shape[0]))
+        info = {}
+        dones = np.empty(shape=(weights.shape[0]), dtype=bool)
+        for i in range(weights.shape[0]):
+            reward, current_info, done2 = self.sim[i]._step(weights[i], y1, y2)
+            rewards[i] = reward
+            info[self.model_names[i]] = current_info['portfolio_value']
+            info[self.model_names[i]+'_rate_of_return'] = current_info['rate_of_return']
+            info['return'] = current_info['return']
+            dones[i] = done2
+
+        # calculate return for buy and hold a bit of each asset
+        info['market_value'] = np.cumprod([inf["return"] for inf in self.infos + [info]])[-1]
+        # add dates
+        info['date'] = index_to_date(self.start_idx + self.src.idx + self.src.step, self.timestamp_all)
+        info['steps'] = self.src.step
+        info['next_obs'] = ground_truth_obs
+
+        self.infos.append(info)
+
+        return observation, rewards, np.all(dones) or done1, info
+
+    def _reset(self):
+        self.infos = []
+        for sim in self.sim:
+            sim.reset()
+        observation, ground_truth_obs = self.src.reset()
+        cash_observation = np.ones((1, self.window_length, observation.shape[2]))
+        observation = np.concatenate((cash_observation, observation), axis=0)
+        cash_ground_truth = np.ones((1, 1, ground_truth_obs.shape[2]))
+        ground_truth_obs = np.concatenate((cash_ground_truth, ground_truth_obs), axis=0)
+        info = {}
+        info['next_obs'] = ground_truth_obs
+        return observation, info
+
+    def plot(self):
+        df_info = pd.DataFrame(self.infos)
+        fig=plt.gcf()
+        title = 'Trading Performance of Various Models'
+        df_info.set_index('date', inplace=True)
+        df_info[self.model_names + ['market_value']].plot(title=title, fig=fig, rot=30)
