@@ -1,0 +1,2 @@
+model_checkpoint_path: "window_30_batch_norm_normalized_eps_50_checkpoint.ckpt"
+all_model_checkpoint_paths: "window_30_batch_norm_normalized_eps_50_checkpoint.ckpt"

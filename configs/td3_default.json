@@ -1,0 +1,51 @@
+{
+  "actor_layers":
+  [
+    {"type": "ConvLayer", "filter_shape": [2, 1], "filter_number": 8, "strides":[1,1], "padding":"same","activation_function":"relu", "regularizer":"l2"},
+    {"type": "ConvLayer", "filter_shape": [2, 1], "filter_number": 16, "strides":[2,1], "padding":"valid","activation_function":"relu", "regularizer":"l2"},
+    {"type": "ConvLayer", "filter_shape": [2, 2], "filter_number": 32, "strides":[1,1], "padding":"same","activation_function":"relu", "regularizer":"l2"},
+    {"type": "ConvLayer", "filter_shape": [2, 1], "filter_number": 64, "strides":[2,1], "padding":"valid","activation_function":"relu", "regularizer":"l2"},
+    {"type": "ConvLayer", "filter_shape": [2, 1], "filter_number": 128, "strides":[1,1], "padding":"same","activation_function":"relu", "regularizer":"l2"},
+    {"type": "ConvLayer", "filter_shape": [2, 1], "filter_number": 256, "strides":[2,1], "padding":"valid","activation_function":"relu", "regularizer":"l2"},
+    {"type": "LSTM", "neuron_number": 64, "return_state": "False","return_sequences": "False"},
+    {"type": "DenseLayer","neuron_number": 32, "activation_function": "relu", "regularizer": "l2"},
+    {"type": "DenseLayer","neuron_number": 11, "activation_function": "softmax", "regularizer": "l2"}
+  ],
+
+  "critic_layers":
+  [
+    {"type": "ConvLayer", "filter_shape": [2, 1], "filter_number": 8, "strides":[1,1], "padding":"same","activation_function":"relu", "regularizer":"l2"},
+    {"type": "ConvLayer", "filter_shape": [2, 1], "filter_number": 16, "strides":[2,1], "padding":"valid","activation_function":"relu", "regularizer":"l2"},
+    {"type": "ConvLayer", "filter_shape": [2, 2], "filter_number": 32, "strides":[1,1], "padding":"same","activation_function":"relu", "regularizer":"l2"},
+    {"type": "ConvLayer", "filter_shape": [2, 1], "filter_number": 64, "strides":[2,1], "padding":"valid","activation_function":"relu", "regularizer":"l2"},
+    {"type": "ConvLayer", "filter_shape": [2, 1], "filter_number": 128, "strides":[1,1], "padding":"same","activation_function":"relu", "regularizer":"l2"},
+    {"type": "ConvLayer", "filter_shape": [2, 1], "filter_number": 256, "strides":[2,1], "padding":"valid","activation_function":"relu", "regularizer":"l2"},
+    {"type": "LSTM", "neuron_number": 11, "return_state": "False","return_sequences": "False"},
+    {"type": "Iutput_WithW", "neuron_number":16, "activation_function": "relu", "regularizer": "l2"},
+    {"type": "DenseLayer", "neuron_number":16, "activation_function": "relu", "regularizer": "l2"},
+    {"type": "DenseLayer", "neuron_number":1,  "activation_function":"","regularizer": "l2"}
+  ],
+
+  "training":{
+    "episode": 2,
+    "max_step": 2000,
+    "buffer_size": 2000,
+    "batch_size": 64,
+    "policy_delay":1,
+    "device": "cpu",
+    "tau": 0.05,
+    "gamma": 0.99,
+    "actor_learning_rate": 0.01,
+    "actor_lr_decay": 0.1,
+    "critic_learning_rate": 0.0005,
+    "critic_lr_decay":0.0001,
+    "seed": 1337,
+    "time_discount":0.9
+  },
+
+  "input":{
+    "feature_number": 4,
+    "window_size": 20,
+    "asset_number": 10
+  }
+}

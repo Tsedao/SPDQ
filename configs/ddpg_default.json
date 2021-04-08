@@ -23,26 +23,29 @@
     {"type": "LSTM", "neuron_number": 11, "return_state": "False","return_sequences": "False"},
     {"type": "Iutput_WithW", "neuron_number":16, "activation_function": "relu", "regularizer": "l2"},
     {"type": "DenseLayer", "neuron_number":16, "activation_function": "relu", "regularizer": "l2"},
-    {"type": "DenseLayer", "neuron_number":1, "activation_function": "relu", "regularizer": "l2"}
+    {"type": "DenseLayer", "neuron_number":1,  "activation_function":"","regularizer": "l2"}
   ],
 
   "training":{
-    "episode": 20,
-    "max step": 2000,
-    "buffer size": 100000,
-    "batch size": 128,
-    "device": "gpu",
-    "tau": 0.001,
+    "episode": 2,
+    "max_step": 2000,
+    "buffer_size": 2000,
+    "batch_size": 64,
+    "policy_delay":1,
+    "device": "cpu",
+    "tau": 0.05,
     "gamma": 0.99,
-    "actor learning rate": 0.0001,
-    "critic learning rate": 0.001,
+    "actor_learning_rate": 0.01,
+    "actor_lr_decay": 0.1,
+    "critic_learning_rate": 0.0005,
+    "critic_lr_decay":0.0001,
     "seed": 1337,
-    "time discount":0.9
+    "time_discount":0.9
   },
 
   "input":{
     "feature_number": 4,
-    "window_size": 50,
+    "window_size": 20,
     "asset_number": 10
   }
 }
