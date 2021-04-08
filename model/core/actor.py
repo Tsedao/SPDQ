@@ -19,7 +19,8 @@ class ActorNetwork(object):
     between -action_bound and action_bound
     """
 
-    def __init__(self, sess, config, action_bound):
+    def __init__(self, sess, config, feature_number, action_dim, window_size, learning_rate,
+                      action_bound, tau=0.001, batch_size=128,dtype=tf.float32):
         """
         Args:
             sess: a tensorflow session
@@ -31,18 +32,21 @@ class ActorNetwork(object):
         # self.s_dim = state_dim
         # assert isinstance(action_dim, list), 'action_dim must be a list.'
         # self.a_dim = action_dim
+        self.feature_number = feature_number
+        self.action_dim = action_dim
+        self.window_size = window_size
         self.action_bound = action_bound
-        # self.learning_rate = learning_rate
-        # self.tau = tau
-        # self.batch_size = batch_size
-
+        self.learning_rate = learning_rate
+        self.tau = tau
+        self.batch_size = batch_size
         self.config = config
-        self.feature_number = config['input']['feature_number']
-        self.action_dim = config['input']['asset_number'] + 1
-        self.window_size = config['input']['window_size']
-        self.learning_rate = config['training']['actor learning rate']
-        self.tau = config['training']['tau']
-        self.batch_size = config['training']['batch size']
+        self.dtype = dtype
+        # self.feature_number = config['input']['feature_number']
+        # self.action_dim = config['input']['asset_number'] + 1
+        # self.window_size = config['input']['window_size']
+        # self.learning_rate = config['training']['actor learning rate']
+        # self.tau = config['training']['tau']
+        # self.batch_size = config['training']['batch size']
 
 
         # Actor Network
@@ -62,25 +66,6 @@ class ActorNetwork(object):
             [self.target_network_params[i].assign(tf.multiply(self.network_params[i], self.tau) +
                                                   tf.multiply(self.target_network_params[i], 1. - self.tau))
              for i in range(len(self.target_network_params))]
-
-        # This gradient will be provided by the critic network
-        self.action_gradient = tf.placeholder(tf.float32, [None] + [self.action_dim])
-
-        # Combine the gradients here
-        self.unnormalized_actor_gradients = tf.gradients(
-            self.scaled_out, self.network_params, -self.action_gradient)
-        self.actor_gradients = list(map(lambda x: tf.div(x, self.batch_size), self.unnormalized_actor_gradients))
-
-        # Optimization Op
-
-        self.lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-                                                    self.learning_rate,
-                                                    decay_steps=config['training']['episode']*config['training']['max step'],
-                                                    decay_rate=0.96,
-                                                    staircase=True)
-
-        self.optimize = tf.keras.optimizers.Adam(self.lr_schedule). \
-            apply_gradients(zip(self.actor_gradients, self.network_params))
 
         self.num_trainable_vars = len(self.network_params) + len(self.target_network_params)
 
