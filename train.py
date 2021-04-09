@@ -191,9 +191,9 @@ if __name__ == '__main__':
 
     with h5py.File(file_path,'r') as f:
         history_stock_price = f['stock_price'][...]
-        timestamp = [s.decode('utf-8') for s in f['timestamp']]
-        abbreviations = [s.decode('utf-8') for s in f['abbreviations']]
-        features = [s.decode('utf-8') for s in f['features']]
+        timestamp = [s.decode('utf-8') if type(s) == bytes else s for s in f['timestamp']]
+        abbreviations = [s.decode('utf-8') if type(s) == bytes else s for s in f['abbreviations']]
+        features = [s.decode('utf-8') if type(s) == bytes else s for s in f['features']]
     with open(config_path) as f:
         config = json.load(f)
 

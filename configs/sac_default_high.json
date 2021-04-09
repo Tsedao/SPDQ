@@ -29,7 +29,7 @@
     "episode": 2,
     "max_step": 100000,
     "buffer_size": 100000,
-    "batch_size": 64,
+    "batch_size": 256,
     "policy_delay":1,
     "num_mixtrue":5,
     "device": "cpu",
