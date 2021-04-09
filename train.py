@@ -112,7 +112,8 @@ def normalize_obs_logdiff(obs):
         normalized_obs:[asset_num,window_length-1,feature_num]
     """
     forwoard_shift_obs = shift5_numba(obs,1)
-    return np.log(obs / forwoard_shift_obs)[:,1:,:]
+    logdiff = np.log(obs / forwoard_shift_obs)[:,1:,:]
+    return np.where(logdiff==-np.inf,0,logdiff)
 
 if __name__ == '__main__':
 
@@ -122,12 +123,13 @@ if __name__ == '__main__':
 
     parser.add_argument('--debug', '-d', help='print debug statement', default=False)
     parser.add_argument('--window_length', '-w', help='observation window length',default=50, type=int,required = True)
-    parser.add_argument('--episode', help='number of episodes during training', type=int, default=20, required = True)
-    parser.add_argument('--steps',help='number of steps in one episode',type=int, required=True)
+    parser.add_argument('--episode','-e', help='number of episodes during training', type=int, default=20, required = True)
+    parser.add_argument('--steps','-s',help='number of steps in one episode',type=int, required=True)
     parser.add_argument('--device', help='use gpu to train or cpu', type=str, default='gpu', required=True)
     parser.add_argument('--batchnorm',type=str2bool,default=False)
     parser.add_argument('--gpu', '-g', help='which gpu to use', type=int, default=[6], nargs='+')
     parser.add_argument('--model','-m',help='which model to train',type=int,required=True)
+    parser.add_argument('--highfreq','-h',help='whether use highfreq data or not',type=str2bool, default=False)
 
     args = parser.parse_args()
 
@@ -170,21 +172,37 @@ if __name__ == '__main__':
                      'NFLX.O',
                      'PG.N']
 
-    # read data
-    with h5py.File('./Data/history_stock_price.h5','r') as f:
-        history_stock_price = f['stock_price'][...]
-        timestamp = [s.decode('utf-8') for s in f['timestamp']]
-        abbreviations = [s.decode('utf-8') for s in f['abbreviations']]
-        features = [s.decode('utf-8') for s in f['features']]
+
 
     if use_batch_norm:
         config_path = 'configs/{}_batchnorm.json'.format(this_model)
     else:
         config_path = 'configs/{}_default.json'.format(this_model)
 
+    # read data
+    if args.highfreq:
+        file_path = './HighData/history_stock_price_cn_1min.h5'
+        config_file = 'configs/sac_default_high.json'
+
+    else:
+        file_path = './Data/history_stock_price.h5'
+
+
+
+    with h5py.File(file_path,'r') as f:
+        history_stock_price = f['stock_price'][...]
+        timestamp = [s.decode('utf-8') for s in f['timestamp']]
+        abbreviations = [s.decode('utf-8') for s in f['abbreviations']]
+        features = [s.decode('utf-8') for s in f['features']]
     with open(config_path) as f:
         config = json.load(f)
 
+    if args.highfreq:
+        train_step = timestamp.index('2020-05-15 15:00:00')
+        valid_step = timestamp.index('2020-12-17 15:00:00')
+    else:
+        train_step = timestamp.index('2019-07-01')
+        valid_step = timestamp.index('2020-07-01')
 
     config['input']['window_size'] = args.window_length
     config['training']['episode'] = args.episode
@@ -203,18 +221,18 @@ if __name__ == '__main__':
     episodes = config['training']['episode']
     device = config['training']['device']
     policy_delay = config['training']['policy_delay']
+    max_step = config['training']['max_step']
 
     actor_layers = config['actor_layers']
     critic_layers = config['critic_layers']
 
 
-    train_step = timestamp.index('2019-07-01')
-    valid_step = timestamp.index('2020-07-01')
 
-    history_stock_price_training = history_stock_price[:,1:train_step,:]
+
+    history_stock_price_training = history_stock_price[:,0:train_step,:]
     history_stock_price_validating = history_stock_price[:,train_step:valid_step,:]
     history_stock_price_testing = history_stock_price[:,valid_step:,:]
-    timestamp_training = timestamp[1:train_step]
+    timestamp_training = timestamp[0:train_step]
     timestamp_validating = timestamp[train_step:valid_step]
     timestamp_testing = timestamp[valid_step:]
 
@@ -222,7 +240,7 @@ if __name__ == '__main__':
                                 abbreviation=abbreviations,
                                 timestamp=timestamp_training,
                                 window_length = window_size,
-                                steps=3000,
+                                steps=max_step,
                                 feature_num = feature_number)
 
 
