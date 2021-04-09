@@ -129,7 +129,7 @@ if __name__ == '__main__':
     parser.add_argument('--batchnorm',type=str2bool,default=False)
     parser.add_argument('--gpu', '-g', help='which gpu to use', type=int, default=[6], nargs='+')
     parser.add_argument('--model','-m',help='which model to train',type=int,required=True)
-    parser.add_argument('--highfreq','-h',help='whether use highfreq data or not',type=str2bool, default=False)
+    parser.add_argument('--highfreq',help='whether use highfreq data or not',type=str2bool, default=False)
 
     args = parser.parse_args()
 
