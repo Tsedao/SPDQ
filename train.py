@@ -286,12 +286,13 @@ if __name__ == '__main__':
 
     with tf.variable_scope(variable_scope):
 
-        sess = tf.Session(config=tf_config)
-
         if device == "cpu":
             tf_config.gpu_options.per_process_gpu_memory_fraction = 0
         else:
             tf_config.gpu_options.per_process_gpu_memory_fraction = 1
+
+        sess = tf.Session(config=tf_config)
+
 
 
         if this_model =='sac':
