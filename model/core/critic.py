@@ -74,7 +74,7 @@ class CriticNetwork(object):
 
         self.loss_gradients = tf.gradients(self.loss, self.network_params)
         self.optimize = tf.keras.optimizers.Adam(
-            self.lr_schedule).apply_gradients(zip(self.loss_gradients,self.network_params))
+            self.lr_schedule,name='mse_adam').apply_gradients(zip(self.loss_gradients,self.network_params))
 
         self.num_trainable_vars = len(self.network_params) + len(self.target_network_params)
 

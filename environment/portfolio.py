@@ -10,7 +10,7 @@ from matplotlib import pyplot as plt
 
 from utils.data import date_to_index, index_to_date
 
-eps=1e-8
+eps=1e-13
 
 def sharpe(returns, freq=30, rfr=0):
     """ Given a set of returns, calculates naive (rfr=0) sharpe (eq 28). """
@@ -22,6 +22,15 @@ def max_drawdown(returns):
     peak = returns.max()
     trough = returns[returns.argmax():].min()
     return (trough - peak) / (peak + eps)
+
+def ARR(portfolio_value,freq):
+    return ((portfolio_value.iloc[-1] - portfolio_value.iloc[0]) / portfolio_value.iloc[0])*(256/freq)
+
+def AVOL(returns,freq):
+    return  np.sqrt(np.mean(returns**2)-(np.mean(returns))**2) * np.sqrt(256/freq)
+
+def DDR(returns,arr):
+    return arr / np.sqrt(np.mean(np.min(returns,0)**2))
 
 
 class DataGenerator(object):
@@ -95,7 +104,7 @@ class PortfolioSim(object):
     Based of [Jiang 2017](https://arxiv.org/abs/1706.10059)
     """
 
-    def __init__(self, asset_names=list(), steps=730, trading_cost=0.0025, time_cost=0.0, belta=0.01):
+    def __init__(self, asset_names=list(), steps=730, trading_cost=0.0025, time_cost=0.0, belta=0.0):
         self.asset_names = asset_names
         self.cost = trading_cost
         self.time_cost = time_cost
@@ -104,71 +113,74 @@ class PortfolioSim(object):
         self.belta = belta
         self.onestep_rewards = [0]
 
-    def _step(self, w1, v1, v2):
+    def _step(self, w1_o, v1, v2):
         """
         Step.
-        w0 - previous action
-        w1 - new action of portfolio weights - e.g. [0.1,0.9,0.0]
+        w1_o - new action of portfolio weights - e.g. [0.1,0.9,0.0]
         v1 - price relative vector 1: also called return close/open
             e.g. [1.0, 0.9, 1.1]
         v2 - price relative vector 2: close/ pre_close
             for the purpose of calculate market_value
-        Numbered equations are from https://arxiv.org/abs/1706.10059
+
         """
-        assert w1.shape == v1.shape, 'w1 and y1 must have the same shape'
+        assert w1_o.shape == v1.shape, 'w1 and y1 must have the same shape'
         assert v1[0] == 1.0, 'y1[0] must be 1'
 
         v0 = v2 / v1  # price relative vector 0: open / pre_close
 
-        p0 = self.p0
-        w0 = self.w0
+        p0_c = self.p0_c
+        w0_c = self.w0_c
         # passive change
-        p0 = p0 * np.dot(v0,w0)     # change of portfolio_value because of open price not equals to pre close price
+        p1_o = p0_c * np.dot(v0,w0_c)     # change of portfolio_value because of open price not equals to pre close price
 
-        dw1 = (v1 * w1) / (np.dot(v1, w1) + eps)  # (eq7) weights evolve into
+        w1_c = (v1 * w1_o) / (np.dot(v1, w1_o) + eps)  # arggressive weights evolve into
 
-        mu1 = self.cost * (np.abs(dw1 - w1)).sum()  # (eq16) cost to change portfolio
+        dw = np.abs(w1_o[1:] - w0_c[1:]).sum()
+        turn_over_ratio = dw
+        mu1 = self.cost * dw  # (eq16) cost to change portfolio
 
         assert mu1 < 1.0, 'Cost is larger than current holding'
 
         var = np.var(self.onestep_rewards)
 
-        r = np.log((1-mu1)*np.dot(w1,v1)) - self.belta * (var) #
+        r = np.log((1-mu1)*np.dot(w1_o,v1)) - self.belta * (var) #
 
         self.onestep_rewards.append(r)
 
-        p1 = p0 * (1 - mu1) * np.dot(v1, w1)  # (eq11) final portfolio value
+        p1_c = p1_o * (1 - mu1) * np.dot(v1, w1_o)  #  final portfolio value
 
-        p1 = p1 * (1 - self.time_cost)  # we can add a cost to holding
+        p1_c = p1_c * (1 - self.time_cost)  # we can add a cost to holding
 
-        rho1 = p1 / p0 - 1  # rate of returns
-        r1 = np.log((p1 + eps) / (p0 + eps))  # log rate of return
-        # reward = r1 / self.steps * 1000.  # (22) average logarithmic accumulated return
+        rho1 = p1_c / p0_c - 1  # rate of returns
+        r1 = np.log((p1_c + eps) / (p0_c + eps))  # log rate of return
+
         # remember for next step
-        self.w0 = w1
-        self.p0 = p1
+        self.w0_c = w1_c
+        self.p0_c = p1_c
 
         # if we run out of money, we're done (losing all the money)
-        done = p1 == 0
+        done = p1_c == 0
 
         info = {
             "onestep reward penalized by var": r,
             "log_return": r1,
-            "portfolio_value": p1,
+            "portfolio_value": p1_c,
             "return": v2.mean(),
             "rate_of_return": rho1,
-            "weights": w0,
-            "weights_mean": w1.mean(),
-            "weights_std": w1.std(),
+            "weights": w1_o,
+            "weights_mean": w1_o.mean(),
+            "weights_std": w1_o.std(),
             "cost": mu1,
+            "turn_over_ratio":turn_over_ratio
         }
         self.infos.append(info)
+        print('reward: %.4f,turn_over_ratio: %.4f'%(r,turn_over_ratio))
         return r, info, done
 
     def reset(self):
         self.infos = []
-        self.p0 = 1.0
-        self.w0 = np.array([1]+[0 for i in range(len(self.asset_names))])
+        self.p0_c = 1.0
+        self.w0_c = np.array([1]+[0 for i in range(len(self.asset_names))])
 
 class PortfolioEnv(gym.Env):
     """
@@ -270,6 +282,7 @@ class PortfolioEnv(gym.Env):
         y1 = close_price_vector / open_price_vector
         y2 = close_price_vector / pre_close_price_vector
 
+        pre_w = self.sim.w0_c
         onestep_r, info, done2 = self.sim._step(weights, y1, y2)
 
         # calculate return for buy and hold a bit of each asset
@@ -280,7 +293,7 @@ class PortfolioEnv(gym.Env):
         info['next_obs'] = ground_truth_obs
 
         self.infos.append(info)
-
+        #observation = (observation,pre_w)
         return observation, onestep_r, done1 or done2, info
 
     def reset(self):
@@ -289,6 +302,7 @@ class PortfolioEnv(gym.Env):
     def _reset(self):
         self.infos = []
         self.sim.reset()
+        pre_w = self.sim.w0_c
         observation, ground_truth_obs = self.src.reset()
         self.timestamp_all = self.src.timestamp_all
         cash_observation = np.ones((1, self.window_length, observation.shape[2]))
@@ -297,6 +311,7 @@ class PortfolioEnv(gym.Env):
         ground_truth_obs = np.concatenate((cash_ground_truth, ground_truth_obs), axis=0)
         info = {}
         info['next_obs'] = ground_truth_obs
+        #observation = (observation, pre_w)
         return observation, info
 
     def _render(self, mode='human', close=False):
@@ -333,9 +348,10 @@ class MultiActionPortfolioEnv(PortfolioEnv):
                  time_cost=0.00,
                  start_idx=0,
                  sample_start_date=None,
+                 feature_num = 4
                  ):
         super(MultiActionPortfolioEnv, self).__init__(history, abbreviation, timestamp, steps, trading_cost, time_cost, window_length,
-                              start_idx, sample_start_date)
+                              start_idx, sample_start_date,feature_num)
         self.model_names = model_names
         # need to create each simulator for each model
         self.sim = [PortfolioSim(

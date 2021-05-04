@@ -8,9 +8,9 @@ def test_model(env, model, policy_delay):
     pre_action = None
     while not done:
         action = pre_action
-        if count % policy_delay == 0:
-            action = model.predict_single(observation)
-            pre_action = action
+
+        action = model.predict_single(observation)
+        pre_action = action
         count += 1
         observation, _, done, _ = env.step(action)
 
@@ -25,21 +25,25 @@ def test_model_multiple(env, models, policy_delay):
     pre_actions = []
     while not done:
         actions = pre_actions
-        if count % policy_delay == 0:
-            actions = []
-            for model in models:
-                actions.append(model.predict_single(observation))
-            actions = np.array(actions)
-            pre_actions = actions
+
+        actions = []
+        for model in models:
+            actions.append(model.predict_single(observation))
+        actions = np.array(actions)
+        pre_actions = actions
         count += 1
         observation, _, done, info = env.step(actions)
 
     return env
 
-def get_path(mode, model, episode, window_size, use_batch_norm = False, use_obs_normalizer = False):
+def get_path(mode, model, episode, window_size, use_batch_norm = False,
+            use_obs_normalizer = False,best=False,num_mixture=None):
 
     assert mode in ['weights', 'results']
-    assert model in ['ddpg', 'td3','sac']
+    assert model in ['ddpg', 'td3','sac','qrsac']
+
+    if best:
+        model= 'best_'+model
 
     if use_batch_norm:
         batch_norm_str = 'batch_norm'
@@ -52,12 +56,14 @@ def get_path(mode, model, episode, window_size, use_batch_norm = False, use_obs_
         normailzed_str = "no_normalized"
 
 
-    return '{}/{}/window_{}_{}_{}_eps_{}_checkpoint.ckpt'.format(mode,
+
+    return '{}/{}/window_{}_{}_{}_eps_{}_mix_{}_checkpoint.ckpt'.format(mode,
                                                             model,
                                                             window_size,
                                                             batch_norm_str,
                                                             normailzed_str,
-                                                            episode)
+                                                            episode,
+                                                            str(num_mixture))
 
 def get_variable_scope(window_size, use_batch_norm = False, use_obs_normalizer = False):
     if use_batch_norm:
@@ -112,9 +118,21 @@ def normalize_obs_logdiff(obs):
         normalized_obs:[asset_num,window_length-1,feature_num]
     """
     forwoard_shift_obs = shift5_numba(obs,1)
-    logdiff = np.log(obs / forwoard_shift_obs)[:,1:,:]
-    return np.where(logdiff==-np.inf,0,logdiff)
+    logdiff = np.log(obs[:,:,:-1] / forwoard_shift_obs[:,:,:-1])[:,1:,:]
 
+    return np.concatenate([np.where(logdiff==-np.inf,0,logdiff),obs[:,1:,-1:]],axis=-1)
+
+def normalize_obs_diff_2(obs,scaling=2):
+    """
+    Inputs:
+        obs:[asset_num,window_length,feature_num] obs must bigger than zero
+    Return:
+        normalized_obs:[asset_num,window_length,feature_num]
+    """
+    denominator = obs[:,-1:,:-1]
+    out = ( obs[:,:,:-1] / denominator )-1
+
+    return np.concatenate([out,obs[:,:,-1:]],axis=-1)
 if __name__ == '__main__':
 
     import argparse
@@ -130,6 +148,8 @@ if __name__ == '__main__':
     parser.add_argument('--gpu', '-g', help='which gpu to use', type=int, default=[6], nargs='+')
     parser.add_argument('--model','-m',help='which model to train',type=int,required=True)
     parser.add_argument('--highfreq',help='whether use highfreq data or not',type=str2bool, default=False)
+    parser.add_argument('--load_weights',help='load pre-trained model',type=str2bool,default=False)
+    parser.add_argument('--num_mixture',type=int,default=None)
 
     args = parser.parse_args()
 
@@ -137,7 +157,7 @@ if __name__ == '__main__':
 
     import os
     os.environ['CUDA_VISIBLE_DEVICES'] = ','.join([str(x) for x in args.gpu])
-    os.environ['TF_CPP_MIN_LOG_LEVEL']='2'
+
 
     import tensorflow as tf
     import pandas as pd
@@ -148,17 +168,19 @@ if __name__ == '__main__':
 
     from model.ddpg.stockactor import DDPGActor
     from model.ddpg.stockcritic import DDPGCritic
+    from model.qrsac.stockcritic import QRCritic
     from model.sac.stockactor import SACActor
     from model.ddpg.ddpg import DDPG
     from model.td3.td3 import TD3
     from model.sac.sac import SAC
+    from model.qrsac.qrsac import QRSAC
     from model.core.ornstein_uhlenbeck import OrnsteinUhlenbeckActionNoise
 
 
     eps=1e-8
     use_batch_norm = args.batchnorm
     use_obs_normalizer = True
-    model_zoo = ['ddpg', 'td3','sac']
+    model_zoo = ['ddpg', 'td3','sac','qrsac']
     this_model = model_zoo[args.model]
 
     abbreviations = ['AAPL.O',
@@ -177,7 +199,7 @@ if __name__ == '__main__':
     if use_batch_norm:
         config_path = 'configs/{}_batchnorm.json'.format(this_model)
     else:
-        config_path = 'configs/{}_default.json'.format(this_model)
+        config_path = 'configs/{}_default_highassets_2.json'.format(this_model)
 
     # read data
     if args.highfreq:
@@ -185,7 +207,7 @@ if __name__ == '__main__':
         config_file = 'configs/sac_default_high.json'
 
     else:
-        file_path = './Data/history_stock_price.h5'
+        file_path = './Data/history_stock_price_us_22.h5'
 
 
 
@@ -201,40 +223,44 @@ if __name__ == '__main__':
         train_step = timestamp.index('2020-05-15 15:00:00')
         valid_step = timestamp.index('2020-12-17 15:00:00')
     else:
-        train_step = timestamp.index('2019-07-01')
-        valid_step = timestamp.index('2020-07-01')
+        train_step = timestamp.index('2017-06-29')
+        valid_step = timestamp.index('2019-07-01')
 
     config['input']['window_size'] = args.window_length
     config['training']['episode'] = args.episode
     config['training']['device'] = args.device
     config['training']['max_step'] = args.steps
+    config['training']['num_mixture'] = args.num_mixture
 
     feature_number = config['input']['feature_number']
     window_size = config['input']['window_size']
     asset_number = config['input']['asset_number']
 
-    num_mixtrue = config['training'].get('num_mixtrue',None)
+    num_mixture = config['training'].get('num_mixture',None)
+    num_quart = config['training'].get('num_quart',None)
     actor_learning_rate = config['training']['actor_learning_rate']
     critic_learning_rate = config['training']['critic_learning_rate']
     batch_size = config['training']['batch_size']
     tau = config['training']['tau']        # frequency to update target net parameter
     episodes = config['training']['episode']
     device = config['training']['device']
-    policy_delay = config['training']['policy_delay']
+    policy_delay = config['training'].get('policy_delay',None)
     max_step = config['training']['max_step']
-
+    max_step_val = config['training'].get('max_step_val',300)
     actor_layers = config['actor_layers']
     critic_layers = config['critic_layers']
 
 
 
 
-    history_stock_price_training = history_stock_price[:,0:train_step,:]
-    history_stock_price_validating = history_stock_price[:,train_step:valid_step,:]
-    history_stock_price_testing = history_stock_price[:,valid_step:,:]
+    history_stock_price_training = history_stock_price[:asset_number,0:train_step,:]
+    history_stock_price_validating = history_stock_price[:asset_number,train_step:valid_step,:]
+    history_stock_price_testing = history_stock_price[:asset_number,valid_step:,:]
     timestamp_training = timestamp[0:train_step]
     timestamp_validating = timestamp[train_step:valid_step]
     timestamp_testing = timestamp[valid_step:]
+
+    abbreviations = abbreviations[:asset_number]
 
     env_training = PortfolioEnv(history=history_stock_price_training,
                                 abbreviation=abbreviations,
@@ -248,35 +274,47 @@ if __name__ == '__main__':
                                 abbreviation=abbreviations,
                                 timestamp=timestamp_validating,
                                 window_length = window_size,
-                                steps=120,
-                                sample_start_date='2020-01-02',
+                                steps=max_step_val,
                                 feature_num = feature_number)
 
-#    actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(asset_number+1),sigma=1, theta=0.15)
-    actor_noise = None
+    actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(asset_number+1),sigma=1, theta=0.15)
+
+    #actor_noise = lambda : 0
 
     model_save_path = get_path(mode = 'weights',
                                model = this_model,
                                episode = episodes,
                                window_size = window_size,
                                use_batch_norm = use_batch_norm,
-                               use_obs_normalizer = use_obs_normalizer)
+                               use_obs_normalizer = use_obs_normalizer,
+                               num_mixture=num_mixture)
 
+    best_model_save_path = get_path(mode = 'weights',
+                               model = this_model,
+                               episode = episodes,
+                               window_size = window_size,
+                               use_batch_norm = use_batch_norm,
+                               use_obs_normalizer = use_obs_normalizer,
+                               best=True,
+                               num_mixture=num_mixture)
 
     summary_path = get_path(mode = 'results',
                             model = this_model,
                             episode = episodes,
                             window_size = window_size,
                             use_batch_norm = use_batch_norm,
-                            use_obs_normalizer = use_obs_normalizer)
+                            use_obs_normalizer = use_obs_normalizer,
+                            num_mixture=num_mixture)
 
     variable_scope = get_variable_scope(window_size,
                                         use_batch_norm = use_batch_norm,
                                         use_obs_normalizer = use_obs_normalizer)
 
+
     if use_obs_normalizer:
-        obs_normalizer = normalize_obs_logdiff
-        window_size = window_size - 1
+        obs_normalizer = normalize_obs_diff_2
+        # obs_normalizer = normalize_obs_logdiff
+        # window_size = window_size - 1
     else:
         obs_normalizer = None
 
@@ -294,80 +332,108 @@ if __name__ == '__main__':
         sess = tf.Session(config=tf_config)
 
 
+        with tf.variable_scope('actor'):
 
-        if this_model =='sac':
-            dtype = tf.float64
-            tf.keras.backend.set_floatx('float64')
-            stockactor = SACActor(sess, feature_number = feature_number,
-                                          config = config,
-                                          action_dim = asset_number + 1,
-                                          window_size = window_size,
-                                          num_mixtrue = num_mixtrue,
-                                          learning_rate = actor_learning_rate,
-                                          action_bound=1,
-                                          layers = actor_layers,
-                                          tau=tau, batch_size=batch_size,dtype=dtype)
-        else:
+            if this_model[-3:] =='sac':
+                dtype = tf.float64
+                tf.keras.backend.set_floatx('float64')
+                stockactor = SACActor(sess, feature_number = feature_number,
+                                              config = config,
+                                              action_dim = asset_number + 1,
+                                              window_size = window_size,
+                                              num_mixture = num_mixture,
+                                              learning_rate = actor_learning_rate,
+                                              action_bound=1,
+                                              layers = actor_layers,
+                                              tau=tau, batch_size=batch_size,dtype=dtype)
+            else:
 
-            stockactor = DDPGActor(sess, feature_number = feature_number,
-                                          config = config,
-                                          action_dim = asset_number + 1,
-                                          window_size = window_size,
-                                          learning_rate = actor_learning_rate,
-                                          action_bound=1,
-                                          layers = actor_layers,
-                                          tau=tau, batch_size=batch_size)
+                stockactor = DDPGActor(sess, feature_number = feature_number,
+                                              config = config,
+                                              action_dim = asset_number + 1,
+                                              window_size = window_size,
+                                              learning_rate = actor_learning_rate,
+                                              action_bound=1,
+                                              layers = actor_layers,
+                                              tau=tau, batch_size=batch_size)
 
-        stockcritic = DDPGCritic(sess, feature_number = feature_number,
-                                        config = config,
-                                        action_dim = asset_number+1,
-                                        window_size = window_size,
-                                        learning_rate = critic_learning_rate,
-                                        num_actor_vars = stockactor.get_num_trainable_vars(),
-                                        layers = critic_layers,
-                                        tau=tau, batch_size=batch_size,dtype=dtype)
+        with tf.variable_scope('critic'):
+            if this_model[:2] == 'qr':
+
+                stockcritic = QRCritic(sess,    feature_number = feature_number,
+                                                config = config,
+                                                action_dim = asset_number+1,
+                                                window_size = window_size,
+                                                num_quart = num_quart,
+                                                learning_rate = critic_learning_rate,
+                                                num_actor_vars = stockactor.get_num_trainable_vars(),
+                                                layers = critic_layers,
+                                                tau=tau, batch_size=batch_size,dtype=dtype)
+
+            else:
+                stockcritic = DDPGCritic(sess, feature_number = feature_number,
+                                                config = config,
+                                                action_dim = asset_number+1,
+                                                window_size = window_size,
+                                                learning_rate = critic_learning_rate,
+                                                num_actor_vars = stockactor.get_num_trainable_vars(),
+                                                layers = critic_layers,
+                                                tau=tau, batch_size=batch_size,dtype=dtype)
 
 
         if this_model == 'ddpg':
-             model = DDPG(env_training,sess, actor = stockactor,
+             model = DDPG(env_training,env_validating ,sess, actor = stockactor,
                                              critic = stockcritic,
                                              obs_normalizer = obs_normalizer,
                                              actor_noise = actor_noise,
                                              model_save_path = model_save_path,
+                                             best_model_save_path = best_model_save_path,
                                              summary_path = summary_path,
                                              config = config)
 
         elif this_model == 'td3' or this_model == 'sac':
-
-            stockcritic2 = DDPGCritic(sess, feature_number = feature_number,
-                                             config = config,
-                                             action_dim = asset_number+1,
-                                             window_size = window_size,
-                                             learning_rate = critic_learning_rate,
-                                             num_actor_vars = stockactor.get_num_trainable_vars() + stockcritic.get_num_trainable_vars(),
-                                             layers = critic_layers,
-                                             tau=tau, batch_size=batch_size,dtype=dtype)
+            with tf.variable_scope('critic'):
+                stockcritic2 = DDPGCritic(sess, feature_number = feature_number,
+                                                 config = config,
+                                                 action_dim = asset_number+1,
+                                                 window_size = window_size,
+                                                 learning_rate = critic_learning_rate,
+                                                 num_actor_vars = stockactor.get_num_trainable_vars() + stockcritic.get_num_trainable_vars(),
+                                                 layers = critic_layers,
+                                                 tau=tau, batch_size=batch_size,dtype=dtype)
             if this_model == 'td3':
-                model = TD3(env_training, sess,  actor = stockactor,
+                model = TD3(env_training, env_validating, sess,  actor = stockactor,
                                                  critic1 = stockcritic,
                                                  critic2 = stockcritic2,
                                                  obs_normalizer = obs_normalizer,
                                                  actor_noise = actor_noise,
                                                  policy_delay = policy_delay,
                                                  model_save_path = model_save_path,
+                                                 best_model_save_path = best_model_save_path,
                                                  summary_path = summary_path,
                                                  config = config)
             else:
-                model = SAC(env_training, sess,  actor = stockactor,
+                model = SAC(env_training, env_validating, sess,  actor = stockactor,
                                                  critic1 = stockcritic,
                                                  critic2 = stockcritic2,
                                                  obs_normalizer = obs_normalizer,
                                                  actor_noise = actor_noise,
                                                  policy_delay = policy_delay,
                                                  model_save_path = model_save_path,
+                                                 best_model_save_path = best_model_save_path,
                                                  summary_path = summary_path,
                                                  config = config)
+        elif this_model == 'qrsac':
+            model = QRSAC(env_training,env_validating, sess,  actor = stockactor,
+                                             critic = stockcritic,
+                                             obs_normalizer = obs_normalizer,
+                                             actor_noise = actor_noise,
+                                             policy_delay = policy_delay,
+                                             model_save_path = model_save_path,
+                                             best_model_save_path = best_model_save_path,
+                                             summary_path = summary_path,
+                                             config = config)
         else:
             raise("Model not Implemented Error")
-        model.initialize(load_weights=False)
+        model.initialize(load_weights=args.load_weights)
         model.train()

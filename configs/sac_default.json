@@ -3,19 +3,19 @@
   [
     {"type": "ConvLayer", "filter_shape": [2, 1], "filter_number": 8, "strides":[1,1], "padding":"same","activation_function":"relu", "regularizer":"l2"},
     {"type": "ConvLayer", "filter_shape": [2, 1], "filter_number": 16, "strides":[2,1], "padding":"valid","activation_function":"relu", "regularizer":"l2"},
-    {"type": "ConvLayer", "filter_shape": [2, 2], "filter_number": 32, "strides":[1,1], "padding":"same","activation_function":"relu", "regularizer":"l2"},
+    {"type": "ConvLayer", "filter_shape": [2, 1], "filter_number": 32, "strides":[1,1], "padding":"same","activation_function":"relu", "regularizer":"l2"},
     {"type": "ConvLayer", "filter_shape": [2, 1], "filter_number": 64, "strides":[2,1], "padding":"valid","activation_function":"relu", "regularizer":"l2"},
     {"type": "ConvLayer", "filter_shape": [2, 1], "filter_number": 128, "strides":[1,1], "padding":"same","activation_function":"relu", "regularizer":"l2"},
     {"type": "ConvLayer", "filter_shape": [2, 1], "filter_number": 256, "strides":[2,1], "padding":"valid","activation_function":"relu", "regularizer":"l2"},
     {"type": "LSTM", "neuron_number": 64, "return_state": "False","return_sequences": "False"},
-    {"type": "DenseLayer","neuron_number": 32, "activation_function": "relu", "regularizer": "l2"}
+    {"type": "DenseLayer","neuron_number":32, "activation_function": "relu", "regularizer": "l2"}
   ],
 
   "critic_layers":
   [
     {"type": "ConvLayer", "filter_shape": [2, 1], "filter_number": 8, "strides":[1,1], "padding":"same","activation_function":"relu", "regularizer":"l2"},
     {"type": "ConvLayer", "filter_shape": [2, 1], "filter_number": 16, "strides":[2,1], "padding":"valid","activation_function":"relu", "regularizer":"l2"},
-    {"type": "ConvLayer", "filter_shape": [2, 2], "filter_number": 32, "strides":[1,1], "padding":"same","activation_function":"relu", "regularizer":"l2"},
+    {"type": "ConvLayer", "filter_shape": [2, 1], "filter_number": 32, "strides":[1,1], "padding":"same","activation_function":"relu", "regularizer":"l2"},
     {"type": "ConvLayer", "filter_shape": [2, 1], "filter_number": 64, "strides":[2,1], "padding":"valid","activation_function":"relu", "regularizer":"l2"},
     {"type": "ConvLayer", "filter_shape": [2, 1], "filter_number": 128, "strides":[1,1], "padding":"same","activation_function":"relu", "regularizer":"l2"},
     {"type": "ConvLayer", "filter_shape": [2, 1], "filter_number": 256, "strides":[2,1], "padding":"valid","activation_function":"relu", "regularizer":"l2"},
@@ -28,10 +28,12 @@
   "training":{
     "episode": 2,
     "max_step": 2000,
-    "buffer_size": 2000,
+    "max_step_val":300,
+    "buffer_size": 5000,
+    "buffer_size_val":2000,
     "batch_size": 64,
     "policy_delay":1,
-    "num_mixtrue":5,
+    "num_mixture":2,
     "device": "cpu",
     "tau": 0.05,
     "gamma": 0.99,

@@ -44,6 +44,22 @@ class DDPGCritic(CriticNetwork):
             self.bias: bias
         })
 
+    def val(self, inputs, action, target_q_value, bias):
+        """
+        Args:
+            inputs: observation
+            action: predicted action
+            target_q_value:
+        """
+        inputs = inputs[:, :, -self.window_size:, :]
+        self.critic_net.training = False
+        return self.sess.run([self.out, self.loss], feed_dict={
+            self.inputs: inputs,
+            self.action: action,
+            self.target_q_value: target_q_value,
+            self.bias: bias
+        })
+
     def compute_TDerror(self, inputs, action, target_q_value):
         inputs = inputs[:, :, -self.window_size:, :]
         self.critic_net.training = False
