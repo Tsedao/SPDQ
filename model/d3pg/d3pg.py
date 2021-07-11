@@ -275,8 +275,7 @@ class D3PG(DDPG):
 
                 ep_reward += reward
                 previous_observation = observation
-
-                if done or self.config['training']['max_step'] - self.config['training']['max_step_size']:
+                if done or j == self.config['training']['max_step'] - self.config['training']['max_step_size']:
 
                     print('Episode: {:d}, Reward: {:.2f}, Qmax: {:.4f}, loss: {:.8f}'.format(
                             i, ep_reward, (ep_max_q / float(j+1)),
