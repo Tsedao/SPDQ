@@ -10,7 +10,6 @@ from matplotlib import pyplot as plt
 
 from utils.data import date_to_index, index_to_date
 
-from icecream import ic
 eps=1e-13
 
 def sharpe(returns, freq=30, rfr=0):
@@ -24,29 +23,11 @@ def max_drawdown(returns):
     trough = returns[returns.argmax():].min()
     return (trough - peak) / (peak + eps)
 
-def ARR(portfolio_value,freq):
-    return ((portfolio_value.iloc[-1] - portfolio_value.iloc[0]) / portfolio_value.iloc[0])*(256/freq)
-
-def AVOL(returns,freq):
-    return  np.sqrt(np.mean(returns**2)-(np.mean(returns))**2) * np.sqrt(256/freq)
-
-def DDR(returns,arr):
-    return arr / np.sqrt(np.mean(np.min(returns,0)**2))
-
 
 class DataGenerator(object):
     """Acts as data provider for each new episode."""
 
-    def __init__(self, history,
-                       abbreviation,
-                       timestamp,
-                       steps=730,
-                       step_size=1,
-                       window_length=50,
-                       start_idx=0,
-                       start_date=None,
-                       feature_num=4,
-                       valid_env=False):
+    def __init__(self, history, abbreviation, timestamp, steps=730, window_length=50, start_idx=0, start_date=None,feature_num=4):
         """
         Args:
             history: (num_stocks, timestamp, 5) open, high, low, close, volume
@@ -59,8 +40,8 @@ class DataGenerator(object):
         """
         assert history.shape[0] == len(abbreviation), 'Number of stock is not consistent'
         import copy
-        self.step_size = step_size
-        self.steps = steps + self.step_size
+
+        self.steps = steps + 1
         self.window_length = window_length
         self.start_idx = start_idx
         self.start_date = start_date
@@ -69,13 +50,11 @@ class DataGenerator(object):
         self._data = history.copy()[...,:feature_num]  # all data
         self.asset_names = copy.copy(abbreviation)
         self.timestamp_all = timestamp
-        self.valid_env = valid_env
 
     def _step(self):
         # get observation matrix from history, exclude volume, maybe volume is useful as it
         # indicates how market total investment changes. Normalize could be critical here
-        self.step += self.step_size
-        ic(self.step)
+        self.step += 1
         obs = self.data[:, self.step:self.step + self.window_length, :].copy()
         # normalize obs with open price
 
@@ -87,13 +66,11 @@ class DataGenerator(object):
 
     def reset(self):
         self.step = 0
+
         # get data for this episode, each episode might be different.
         if self.start_date is None:
-            if self.valid_env:
-                self.idx = self.window_length
-            else:
-                self.idx = np.random.randint(
-                    low=self.window_length, high=self._data.shape[1] - self.steps)
+            self.idx = np.random.randint(
+                low=self.window_length, high=self._data.shape[1] - self.steps)
         else:
             # compute index corresponding to start_date for repeatable sequence
             self.idx = date_to_index(self.start_date,self.timestamp_all) - self.start_idx
@@ -118,7 +95,7 @@ class PortfolioSim(object):
     Based of [Jiang 2017](https://arxiv.org/abs/1706.10059)
     """
 
-    def __init__(self, asset_names=list(), steps=730, trading_cost=0.0025, time_cost=0.0, belta=0.0):
+    def __init__(self, asset_names=list(), steps=730, trading_cost=0.0025, time_cost=0.0, belta=0.01):
         self.asset_names = asset_names
         self.cost = trading_cost
         self.time_cost = time_cost
@@ -181,14 +158,13 @@ class PortfolioSim(object):
             "portfolio_value": p1_c,
             "return": v2.mean(),
             "rate_of_return": rho1,
-            "weights": w1_o,
+            "weights": w0_c,
             "weights_mean": w1_o.mean(),
             "weights_std": w1_o.std(),
             "cost": mu1,
             "turn_over_ratio":turn_over_ratio
         }
         self.infos.append(info)
-        # print('reward: %.4f,turn_over_ratio: %.4f'%(r,turn_over_ratio))
         return r, info, done
 
     def reset(self):
@@ -211,14 +187,12 @@ class PortfolioEnv(gym.Env):
                  abbreviation,
                  timestamp,
                  steps=730,  # 2 years
-                 step_size=1,
                  trading_cost=0.0025,
                  time_cost=0.00,
                  window_length=50,
                  start_idx=0,
                  sample_start_date=None,
-                 feature_num=4,
-                 valid_env = False
+                 feature_num=4
                  ):
         """
         An environment for financial portfolio management.
@@ -238,9 +212,8 @@ class PortfolioEnv(gym.Env):
         self.timestamp_all = timestamp
 
         self.src = DataGenerator(history, abbreviation, timestamp,steps=steps,
-                                step_size=step_size,window_length=window_length,
-                                start_idx=start_idx,start_date=sample_start_date,
-                                feature_num=feature_num,valid_env = valid_env)
+                                 window_length=window_length, start_idx=start_idx,
+                                 start_date=sample_start_date,feature_num=feature_num)
 
         self.sim = PortfolioSim(
             asset_names=abbreviation,
@@ -271,32 +244,22 @@ class PortfolioEnv(gym.Env):
             action.shape,
             (len(self.sim.asset_names) + 1,)
         )
-        ic(action)
-        ## normalise just in case
+
+        # normalise just in case
         action = np.clip(action, 0, 1)
 
         weights = action  # np.array([cash_bias] + list(action))  # [w0, w1...]
-        # weights = np.exp(weights) / np.sum(np.exp(weights))
-        weights /= (np.sum(weights) + eps)
+        weights /= (weights.sum() + eps)
         weights[0] += np.clip(1 - weights.sum(), 0, 1)  # so if weights are all zeros we normalise to [1,0...]
 
-        assert ((action>= 0) * (action <= 1)).all(), 'all action values should be between 0 and 1. Not %s' % action
-        ic(weights)
-        ## buy good sell bad startegy
-        # sell_idx, buy_idx = np.argsort(weights)[:len(weights)//2], np.argsort(weights)[len(weights)//2:]
-        # sell_prop = np.exp(1-weights[sell_idx]) / np.sum(np.exp(1-weights[sell_idx]))
-        # buy_prop = np.exp(weights[buy_idx]) / np.sum(np.exp(weights[buy_idx]))
-        # weights[sell_idx] = weights[sell_idx]-sell_prop
-        # weights[buy_idx] = weights[buy_idx] + buy_prop
+        assert ((action >= 0) * (action <= 1)).all(), 'all action values should be between 0 and 1. Not %s' % action
         np.testing.assert_almost_equal(
             np.sum(weights), 1.0, 3, err_msg='weights should sum to 1. action="%s"' % weights)
-        #ic(weights)
+
         observation, done1, ground_truth_obs = self.src._step()
 
         # concatenate observation with ones
         cash_observation = np.ones((1, self.window_length, observation.shape[2]))
-        ic(observation.shape)
-        ic(cash_observation.shape)
         observation = np.concatenate((cash_observation, observation), axis=0)
 
         cash_ground_truth = np.ones((1, 1, ground_truth_obs.shape[2]))
@@ -309,10 +272,8 @@ class PortfolioEnv(gym.Env):
         y1 = close_price_vector / open_price_vector
         y2 = close_price_vector / pre_close_price_vector
 
-        pre_w = self.sim.w0_c
-        self.weights[:,:-1] = self.weights[:,1:]
-        self.weights[:,-1] = pre_w
         onestep_r, info, done2 = self.sim._step(weights, y1, y2)
+
         # calculate return for buy and hold a bit of each asset
         info['market_value'] = np.cumprod([inf["return"] for inf in self.infos + [info]])[-1]
         # add dates
@@ -321,9 +282,7 @@ class PortfolioEnv(gym.Env):
         info['next_obs'] = ground_truth_obs
 
         self.infos.append(info)
-        #observation = (observation,pre_w)
 
-        observation = np.concatenate([observation,np.expand_dims(self.weights,axis=-1)],axis=-1)
         return observation, onestep_r, done1 or done2, info
 
     def reset(self):
@@ -331,10 +290,7 @@ class PortfolioEnv(gym.Env):
 
     def _reset(self):
         self.infos = []
-        self.weights = np.concatenate([np.ones((1,self.window_length)),
-                    np.zeros((self.num_stocks, self.window_length))],axis=0)
         self.sim.reset()
-        pre_w = self.sim.w0_c
         observation, ground_truth_obs = self.src.reset()
         self.timestamp_all = self.src.timestamp_all
         cash_observation = np.ones((1, self.window_length, observation.shape[2]))
@@ -343,8 +299,6 @@ class PortfolioEnv(gym.Env):
         ground_truth_obs = np.concatenate((cash_ground_truth, ground_truth_obs), axis=0)
         info = {}
         info['next_obs'] = ground_truth_obs
-        #observation = (observation, pre_w)
-        observation = np.concatenate([observation,np.expand_dims(self.weights,axis=-1)],axis=-1)
         return observation, info
 
     def _render(self, mode='human', close=False):
@@ -377,16 +331,13 @@ class MultiActionPortfolioEnv(PortfolioEnv):
                  model_names,
                  window_length = 100,
                  steps=730,  # 2 years
-                 step_size=1,
                  trading_cost=0.0025,
                  time_cost=0.00,
                  start_idx=0,
                  sample_start_date=None,
-                 feature_num = 4
                  ):
-        super(MultiActionPortfolioEnv, self).__init__(history, abbreviation, timestamp,
-                              steps,step_size,trading_cost, time_cost, window_length,
-                              start_idx, sample_start_date,feature_num)
+        super(MultiActionPortfolioEnv, self).__init__(history, abbreviation, timestamp, steps, trading_cost, time_cost, window_length,
+                              start_idx, sample_start_date)
         self.model_names = model_names
         # need to create each simulator for each model
         self.sim = [PortfolioSim(
@@ -414,7 +365,6 @@ class MultiActionPortfolioEnv(PortfolioEnv):
         assert ((action >= 0) * (action <= 1)).all(), 'all action values should be between 0 and 1. Not %s' % action
         np.testing.assert_almost_equal(np.sum(weights, axis=1), np.ones(shape=(weights.shape[0])), 3,
                                        err_msg='weights should sum to 1. action="%s"' % weights)
-
         observation, done1, ground_truth_obs = self.src._step()
 
         # concatenate observation with ones

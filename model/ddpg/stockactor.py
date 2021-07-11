@@ -29,7 +29,6 @@ class DDPGActor(ActorNetwork):
         self.optimize = tf.keras.optimizers.Adam(self.lr_schedule). \
             apply_gradients(zip([-1*g for g in self.actor_gradients], self.network_params))
 
-
     def create_actor_network(self):
 
         self.actor_net = nn.CNN(self.feature_number,self.action_dim,

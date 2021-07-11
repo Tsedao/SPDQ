@@ -1,0 +1,45 @@
+{
+  "actor_layers":
+  [
+    {"type": "TemporalConvNets", "kernel_size": 3, "filters": 10, "dilation_rate":1, "dropout_rate":0.3},
+    {"type": "MultiHeadAttention", "mha_layer_num": 3, "heads_num": 3, "dropout_rate":0.3},
+    {"type": "TCN_MHA_OutW"}
+  ],
+
+  "critic_layers":
+  [
+    {"type": "TemporalConvNets", "kernel_size": 3, "filters": 10, "dilation_rate":1, "dropout_rate":0.3},
+    {"type": "MultiHeadAttention", "mha_layer_num": 3, "heads_num": 3, "dropout_rate":0.3},
+    {"type": "TCN_ConcatW"},
+    {"type": "TCN_MHA_OutQ"}
+  ],
+
+  "training":{
+    "episode": 2,
+    "max_step": 2000,
+    "max_step_size":1,
+    "max_step_val":300,
+    "max_step_val_size":1,
+    "buffer_size": 5000,
+    "buffer_size_val":2000,
+    "num_mixtrue":5,
+    "batch_size": 32,
+    "policy_delay":2,
+    "n_step":5,
+    "device": "cpu",
+    "tau": 0.01,
+    "gamma": 0.99,
+    "actor_learning_rate": 0.01,
+    "actor_lr_decay": 0.01,
+    "critic_learning_rate": 0.001,
+    "critic_lr_decay":0.0001,
+    "seed": 1337,
+    "time_discount":0.9
+  },
+
+  "input":{
+    "feature_number": 9,
+    "window_size": 20,
+    "asset_number": 22
+  }
+}

@@ -42,6 +42,9 @@ class DDPG(BaseModel):
         self.action_processor = action_processor
         self.summary_ops, self.summary_vars = self.build_summaries('train')
         self.summary_ops_val, self.summary_vars_val = self.build_summaries('val')
+        self.summary_vars_r, self.summary_vars_val_r = tf.Variable(0.,dtype=tf.float64), tf.Variable(0.,dtype=tf.float64)
+        self.summary_ops_r = tf.summary.scalar("Episode_reward",self.summary_vars_r)
+        self.summary_ops_val_r = tf.summary.scalar("Episode_reward_val",self.summary_vars_val_r)
 
     def build_summaries(self,scope):
         with tf.variable_scope(scope):
@@ -109,7 +112,7 @@ class DDPG(BaseModel):
 
         for j in range(self.config['training']['max_step_val']):
             action = self.actor.predict(np.expand_dims(previous_observation, axis=0)).squeeze(
-                axis=0) + self.actor_noise()
+                axis=0)
 
             if self.action_processor:
                 action_take = self.action_processor(action)
