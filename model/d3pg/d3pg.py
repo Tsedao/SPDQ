@@ -4,6 +4,7 @@ import json
 import numpy as np
 import time
 import tensorflow as tf
+from icecream import ic
 
 from ..core.replay.replay_buffer import ReplayBuffer
 from ..core.replay import proportional, rank_based
@@ -84,7 +85,9 @@ class D3PG(DDPG):
                 y_i = []
                 for k in range(self.batch_size):
                     if t_batch[k]:
-                        y_i.append(r_batch[k])
+                        y_i.append(r_batch[k]* np.ones(self.config['training'].get(
+                                                                'num_quart',1)))
+
                     else:
                         y_i.append(r_batch[k] + self.gamma * target_q[k,:])
 
@@ -211,7 +214,7 @@ class D3PG(DDPG):
                 # add to buffer
                 # self.buffer.add(previous_observation, action, reward, done, observation)
                 self.buffer.store((start_observation, start_action, rewards, done, observation),TD_errors)
-
+                ic(done)
                 if self.buffer.size() >= self.batch_size:
                     # batch update
                     #s_batch, a_batch, r_batch, t_batch, s2_batch = self.buffer.sample_batch(batch_size)
@@ -224,7 +227,8 @@ class D3PG(DDPG):
 
                     for k in range(self.batch_size):
                         if t_batch[k]:
-                            y_tmp = r_batch[k]
+                            y_tmp = r_batch[k] * np.ones(self.config['training'].get(
+                                                                    'num_quart',1))
                         else:
                             y_tmp = r_batch[k] + self.gamma * target_q[k,...]
                         # Update the critic given the targets
@@ -270,9 +274,11 @@ class D3PG(DDPG):
                                             self.summary_vars[1] : np.amax(np.mean(predicted_q_value,axis=1)),
                     })
 
-                    [self.writer.add_summary(summary, self.config['training']['max_step']*i+j) for summary in summaries]
+                    [self.writer.add_summary(summary, self.config['training']['max_step']*i+self.config['training']['n_step']*j) for summary in summaries]
                     self.writer.flush()
 
+                    end_time = time.time()
+                    print("elapsed time {:.4f}s".format(end_time-start_time))
                 ep_reward += reward
                 previous_observation = observation
                 if done or j == self.config['training']['max_step'] - self.config['training']['max_step_size']:
@@ -285,6 +291,7 @@ class D3PG(DDPG):
                     })
                     self.writer.add_summary(reward_summary,i)
                     self.writer.flush()
+                if done:
                     break
             self.validate(i)
         self.save_model(verbose=True)

@@ -264,7 +264,7 @@ class TD3(DDPG):
                                             self.summary_vars[2] : np.amax(predicted_q_value),
                     })
 
-                    [self.writer.add_summary(summary, self.config['training']['max_step']*i+j) for summary in summaries]
+                    [self.writer.add_summary(summary, self.config['training']['max_step']*i+self.config['training']['n_step']*j) for summary in summaries]
                     self.writer.flush()
 
                     # Update the actor policy using the sampled gradient
