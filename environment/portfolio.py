@@ -60,7 +60,7 @@ class DataGenerator(object):
         assert history.shape[0] == len(abbreviation), 'Number of stock is not consistent'
         import copy
         self.step_size = step_size
-        self.steps = steps + self.step_size
+        self.steps = steps
         self.window_length = window_length
         self.start_idx = start_idx
         self.start_date = start_date
@@ -194,7 +194,7 @@ class PortfolioSim(object):
     def reset(self):
         self.infos = []
         self.p0_c = 1.0
-        self.w0_c = np.array([1]+[0 for i in range(len(self.asset_names))])
+        self.w0_c = np.array([1.0]+[0 for i in range(len(self.asset_names))])
 
 class PortfolioEnv(gym.Env):
     """
@@ -218,7 +218,8 @@ class PortfolioEnv(gym.Env):
                  start_idx=0,
                  sample_start_date=None,
                  feature_num=4,
-                 valid_env = False
+                 valid_env = False,
+                 name = 'StockTradingEnv_v1'
                  ):
         """
         An environment for financial portfolio management.
@@ -247,7 +248,7 @@ class PortfolioEnv(gym.Env):
             trading_cost=trading_cost,
             time_cost=time_cost,
             steps=steps)
-
+        self.name = name
         # openai gym attributes
         # action will be the portfolio weights from 0 to 1 for each asset
         self.action_space = gym.spaces.Box(
@@ -272,22 +273,66 @@ class PortfolioEnv(gym.Env):
             (len(self.sim.asset_names) + 1,)
         )
         ic(action)
-        ## normalise just in case
-        action = np.clip(action, 0, 1)
 
-        weights = action  # np.array([cash_bias] + list(action))  # [w0, w1...]
-        # weights = np.exp(weights) / np.sum(np.exp(weights))
-        weights /= (np.sum(weights) + eps)
-        weights[0] += np.clip(1 - weights.sum(), 0, 1)  # so if weights are all zeros we normalise to [1,0...]
+        # Env_v1 is based on zhengyao jiang
+        if self.name == "StockTradingEnv_v1":
+            action = np.clip(action, 0, 1)
+            assert ((action>= 0) * (action <= 1)).all(), 'all action values should be between 0 and 1. Not %s' % action
+            ## normalise just in case
+            weights = action  # np.array([cash_bias] + list(action))  # [w0, w1...]
+            # weights = np.exp(weights) / np.sum(np.exp(weights))
+            weights /= (np.sum(weights) + eps)
+            weights[0] += np.clip(1 - weights.sum(), 0, 1)  # so if weights are all zeros we normalise to [1,0...]
 
-        assert ((action>= 0) * (action <= 1)).all(), 'all action values should be between 0 and 1. Not %s' % action
+        # Env_v2 is based on Alphastock
+        elif self.name == "StockTradingEnv_v2":
+            action = np.clip(action, 0, 1)
+            assert ((action>= 0) * (action <= 1)).all(), 'all action values should be between 0 and 1. Not %s' % action
+            # buy good sell bad startegy, allow to make short position
+            action = np.exp(action) / np.sum(np.exp(action))                     # normalise the action because of exploration
+            weights = action
+            sell_idx, buy_idx = np.argsort(weights)[:len(weights)//2], np.argsort(weights)[len(weights)//2:]
+            sell_prop = np.exp(1-weights[sell_idx]) / np.sum(np.exp(1-weights[sell_idx]))
+            buy_prop = np.exp(weights[buy_idx]) / np.sum(np.exp(weights[buy_idx]))
+            weights[sell_idx] -= sell_prop
+            weights[buy_idx] += buy_prop
+
+        elif self.name in ["StockTradingEnv_v3","StockTradingEnv_v4"]:           # v4 require change the activation of w
+
+
+            if self.name == "StockTradingEnv_v3":
+                action = np.clip(action, 0, 1)
+                assert ((action>= 0) * (action <= 1)).all(), 'all action values should be between 0 and 1. Not %s' % action
+                action = np.exp(action) / np.sum(np.exp(action))                  # normalise the action because of exploration using probability
+                sell_idx, buy_idx = np.argsort(action)[:len(action)//2], np.argsort(action)[len(action)//2:][::-1]
+                sell_prop = np.exp(50*(1-action[sell_idx])) / np.sum(np.exp(50*(1-action[sell_idx])))
+                buy_prop = np.exp(100*(action[buy_idx])) / np.sum(np.exp(100*(action[buy_idx])))
+            else:
+                sell_idx, buy_idx = np.where(action<0)[0], np.where(action>=0)[0]
+                buy_prop = np.exp(10*(action[buy_idx]-1)) / np.sum(np.exp(10*(action[buy_idx]-1)))  # minus one to aviod converge in tanh
+                sell_prop = np.exp(10*(-action[sell_idx]-1)) / np.sum(np.exp(10*(-action[sell_idx]-1)))
+
+            selled_shares_total = 0
+            weights = self.sim.w0_c
+
+            print('*******Selling******')
+            for i,prop in zip(sell_idx,sell_prop):
+                selled_shares = prop*weights[i]
+                weights[i] -= selled_shares                                      # reduce the shares based on holded position
+                selled_shares_total += selled_shares
+                print(prop,i)
+
+            print('******Buying********')
+            bought_shares_total = 0
+            for i,prop in zip(buy_idx,buy_prop):                                 # increase the share based on the number of reduced share
+                bought_shares = min(prop*selled_shares_total,1-weights[i])
+                weights[i] += bought_shares
+                bought_shares_total = bought_shares_total + bought_shares
+                print(prop,i)
+        else:
+            raise('%s Not Implemented'%self.name)
+
         ic(weights)
-        ## buy good sell bad startegy
-        # sell_idx, buy_idx = np.argsort(weights)[:len(weights)//2], np.argsort(weights)[len(weights)//2:]
-        # sell_prop = np.exp(1-weights[sell_idx]) / np.sum(np.exp(1-weights[sell_idx]))
-        # buy_prop = np.exp(weights[buy_idx]) / np.sum(np.exp(weights[buy_idx]))
-        # weights[sell_idx] = weights[sell_idx]-sell_prop
-        # weights[buy_idx] = weights[buy_idx] + buy_prop
         np.testing.assert_almost_equal(
             np.sum(weights), 1.0, 3, err_msg='weights should sum to 1. action="%s"' % weights)
         #ic(weights)
@@ -311,7 +356,7 @@ class PortfolioEnv(gym.Env):
 
         pre_w = self.sim.w0_c
         self.weights[:,:-1] = self.weights[:,1:]
-        self.weights[:,-1] = pre_w
+        self.weights[:,-1] = pre_w                                               # add previous weights to the observation space
         onestep_r, info, done2 = self.sim._step(weights, y1, y2)
         # calculate return for buy and hold a bit of each asset
         info['market_value'] = np.cumprod([inf["return"] for inf in self.infos + [info]])[-1]

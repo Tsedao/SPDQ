@@ -264,7 +264,7 @@ class CNN(NeuralNetWork):
                 out = network
                 weights_out = tf.keras.layers.Dense(1)(out)                      #[None, asset_num, 1]
                 weights_out = tf.squeeze(weights_out,axis=-1)
-                weights_out = tf.keras.activations.softmax(weights_out)
+                weights_out = tf.keras.activations.tanh(weights_out)
                 # weights_out = tf.keras.activations.sigmoid(weights_out)
                 # weights_out /= (tf.math.reduce_sum(weights_out,keepdims=True) + 1e-8)
                 network = weights_out

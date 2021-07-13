@@ -160,6 +160,7 @@ if __name__ == '__main__':
     parser.add_argument('--highfreq',help='whether use highfreq data or not',type=str2bool, default=False)
     parser.add_argument('--load_weights',help='load pre-trained model',type=str2bool,default=False)
     parser.add_argument('--region','-r',type=str,default='us')
+    parser.add_argument('--stock_env','-v',help='version of stock trading environment',type=int, default=3)
     parser.add_argument('--num_mixture',type=int,default=None)
     parser.add_argument('--batch_size','-b',type=int,default=64)
 
@@ -183,10 +184,18 @@ if __name__ == '__main__':
 
     eps=1e-8
     use_batch_norm = args.batchnorm
-    use_obs_normalizer = True
-    model_zoo = ['ddpg', 'td3','d3pg','sac','qrsac']
-    this_model = model_zoo[args.model]
 
+    use_obs_normalizer = True
+
+    model_zoo = ['ddpg', 'td3','d3pg','sac','qrsac']
+
+    stock_env_zoo = ['StockTradingEnv_v1',
+                     'StockTradingEnv_v2',
+                     'StockTradingEnv_v3',
+                     'StockTradingEnv_v4']
+
+    this_model = model_zoo[args.model]
+    stock_env = stock_env_zoo[args.stock_env]
     #  4: EIIE
     #  5: ResNet
     #
@@ -251,7 +260,6 @@ if __name__ == '__main__':
     critic_layers = config['critic_layers']
 
 
-
     history_stock_price_training = history_stock_price[:asset_number,0:train_step,:feature_number]
     history_stock_price_validating = history_stock_price[:asset_number,train_step:valid_step,:feature_number]
     history_stock_price_testing = history_stock_price[:asset_number,valid_step:,:feature_number]
@@ -267,7 +275,8 @@ if __name__ == '__main__':
                                 window_length = window_size,
                                 steps=max_step,
                                 step_size=max_step_size,
-                                feature_num = feature_number)
+                                feature_num = feature_number,
+                                name = stock_env)
 
 
     env_validating = PortfolioEnv(history=history_stock_price_validating,
@@ -277,7 +286,8 @@ if __name__ == '__main__':
                                 steps=max_step_val,
                                 step_size=max_step_val_size,
                                 feature_num = feature_number,
-                                valid_env=True)
+                                valid_env=True,
+                                name = stock_env)
 
     actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(asset_number+1),sigma=1/(asset_number+1), theta=0.3)
 
