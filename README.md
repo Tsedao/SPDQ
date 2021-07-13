@@ -6,5 +6,11 @@
 
 ## Train your own model
 ```
-python train.py -w=[window size] -m=[model number] -e=[num. episode] --steps=[num. steps in one episode]
+python train.py -w=[window size]
+                -m=[model number]
+                -e=[num. episode]
+                -s=[num. steps in one episode]
+                -v=[StockTradingEnv number]
+                --device=[cpu or gpu]
+                --gpu=[which gpu to use]
 ```
