@@ -315,20 +315,24 @@ class PortfolioEnv(gym.Env):
             selled_shares_total = 0
             weights = self.sim.w0_c
 
-            print('*******Selling******')
-            for i,prop in zip(sell_idx,sell_prop):
-                selled_shares = prop*weights[i]
-                weights[i] -= selled_shares                                      # reduce the shares based on holded position
-                selled_shares_total += selled_shares
-                print(prop,i)
+            if len(sell_idx) == 0 or len(buy_idx) == 0:
+                print('******Holding*******')
+                pass
+            else:
+                print('*******Selling******')
+                for i,prop in zip(sell_idx,sell_prop):
+                    selled_shares = prop*weights[i]
+                    weights[i] -= selled_shares                                      # reduce the shares based on holded position
+                    selled_shares_total += selled_shares
+                    print(prop,i)
 
-            print('******Buying********')
-            bought_shares_total = 0
-            for i,prop in zip(buy_idx,buy_prop):                                 # increase the share based on the number of reduced share
-                bought_shares = min(prop*selled_shares_total,1-weights[i])
-                weights[i] += bought_shares
-                bought_shares_total = bought_shares_total + bought_shares
-                print(prop,i)
+                print('******Buying********')
+                bought_shares_total = 0
+                for i,prop in zip(buy_idx,buy_prop):                                 # increase the share based on the number of reduced share
+                    bought_shares = min(prop*selled_shares_total,1-weights[i])
+                    weights[i] += bought_shares
+                    bought_shares_total = bought_shares_total + bought_shares
+                    print(prop,i)
         else:
             raise('%s Not Implemented'%self.name)
 
