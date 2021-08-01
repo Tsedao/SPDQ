@@ -15,7 +15,7 @@ class DDPGCritic(CriticNetwork):
         # this will sum up the gradients of each critic output in the minibatch
         # w.r.t. that action. Each output is independent of all
         # actions except for one.
-        self.action_grads = tf.gradients(self.out, self.action)
+        self.action_grads = tf.gradients(self.out, self.inputs[1])
 
     def create_critic_network(self):
 
@@ -26,7 +26,7 @@ class DDPGCritic(CriticNetwork):
         action = self.critic_net.predicted_w
         out = self.critic_net.output
 
-        return inputs, action, out
+        return [inputs,action], out
 
     def train(self, inputs, action, target_q_value, bias):
         """
@@ -38,8 +38,8 @@ class DDPGCritic(CriticNetwork):
         inputs = inputs[:, :, -self.window_size:, :]
         self.critic_net.training = True
         return self.sess.run([self.out, self.loss, self.optimize], feed_dict={
-            self.inputs: inputs,
-            self.action: action,
+            self.inputs[0]: inputs,
+            self.inputs[1]: action,
             self.target_q_value: target_q_value,
             self.bias: bias
         })
@@ -54,8 +54,8 @@ class DDPGCritic(CriticNetwork):
         inputs = inputs[:, :, -self.window_size:, :]
         self.critic_net.training = False
         return self.sess.run([self.out, self.loss], feed_dict={
-            self.inputs: inputs,
-            self.action: action,
+            self.inputs[0]: inputs,
+            self.inputs[1]: action,
             self.target_q_value: target_q_value,
             self.bias: bias
         })
@@ -64,8 +64,8 @@ class DDPGCritic(CriticNetwork):
         inputs = inputs[:, :, -self.window_size:, :]
         self.critic_net.training = False
         return self.sess.run([self.TD_error], feed_dict={
-            self.inputs: inputs,
-            self.action: action,
+            self.inputs[0]: inputs,
+            self.inputs[1]: action,
             self.target_q_value: target_q_value
         })
 
@@ -73,21 +73,21 @@ class DDPGCritic(CriticNetwork):
         inputs = inputs[:, :, -self.window_size:, :]
         self.critic_net.training = False
         return self.sess.run(self.out, feed_dict={
-            self.inputs: inputs,
-            self.action: action
+            self.inputs[0]: inputs,
+            self.inputs[1]: action
         })
 
     def predict_target(self, inputs, action):
         inputs = inputs[:, :, -self.window_size:, :]
         self.critic_net.training = False
         return self.sess.run(self.target_out, feed_dict={
-            self.target_inputs: inputs,
-            self.target_action: action
+            self.target_inputs[0]: inputs,
+            self.target_inputs[1]: action
         })
 
     def action_gradients(self, inputs, actions):
         inputs = inputs[:, :, -self.window_size:, :]
         return self.sess.run(self.action_grads, feed_dict={
-            self.inputs: inputs,
-            self.action: actions
+            self.inputs[0]: inputs,
+            self.inputs[1]: actions
         })

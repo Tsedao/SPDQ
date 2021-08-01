@@ -37,13 +37,13 @@ class QRCritic(object):
                                  dtype = self.dtype)
         # Create the critic network
         with tf.name_scope('network'):
-            self.inputs, self.action, self.quart_out = self.create_critic_network()
+            self.inputs, self.quart_out = self.create_critic_network()
 
         self.network_params = tf.trainable_variables()[num_actor_vars:]
 
         # Target Network
         with tf.name_scope('target_network'):
-            self.target_inputs, self.target_action, self.target_quart_out = self.create_critic_network()
+            self.target_inputs, self.target_quart_out = self.create_critic_network()
 
         self.target_network_params = tf.trainable_variables()[(len(self.network_params) + num_actor_vars):]
 
@@ -87,7 +87,7 @@ class QRCritic(object):
 
         self.num_trainable_vars = len(self.network_params) + len(self.target_network_params)
 
-        self.action_grads = tf.gradients(self.out, self.action)[0]
+        self.action_grads = tf.gradients(self.out, self.inputs[1])[0]
 
 
 
@@ -100,7 +100,7 @@ class QRCritic(object):
         action = self.critic_net.predicted_w
         out = self.critic_net.output
         quart_out = tf.keras.layers.Dense(self.num_quart,activation=None,dtype=self.dtype)(out)
-        return inputs, action, quart_out
+        return [inputs, action], quart_out
 
     def train(self, inputs, action, target_q_value, bias):
         """
@@ -112,8 +112,8 @@ class QRCritic(object):
         inputs = inputs[:, :, -self.window_size:, :]
         self.critic_net.training = True
         return self.sess.run([self.out, self.loss, self.optimize], feed_dict={
-            self.inputs: inputs,
-            self.action: action,
+            self.inputs[0]: inputs,
+            self.inputs[1]: action,
             self.target_q_value: target_q_value,
             self.bias: bias,
         })
@@ -128,8 +128,8 @@ class QRCritic(object):
         inputs = inputs[:, :, -self.window_size:, :]
         self.critic_net.training = False
         return self.sess.run([self.out, self.loss], feed_dict={
-            self.inputs: inputs,
-            self.action: action,
+            self.inputs[0]: inputs,
+            self.inputs[1]: action,
             self.target_q_value: target_q_value,
             self.bias: bias,
         })
@@ -138,27 +138,27 @@ class QRCritic(object):
         inputs = inputs[:, :, -self.window_size:, :]
         self.critic_net.training = False
         return self.sess.run(self.TD_error, feed_dict={
-            self.inputs: inputs,
-            self.action: action,
+            self.inputs[0]: inputs,
+            self.inputs[1]: action,
             self.target_q_value: target_q_value,
         })
 
     def predict(self, inputs, action):
         return self.sess.run(self.out, feed_dict={
-            self.inputs: inputs,
-            self.action: action,
+            self.inputs[0]: inputs,
+            self.inputs[1]: action,
         })
 
     def predict_target(self, inputs, action):
         return self.sess.run(self.target_out, feed_dict={
-            self.target_inputs: inputs,
-            self.target_action: action,
+            self.target_inputs[0]: inputs,
+            self.target_inputs[1]: action,
         })
 
     def action_gradients(self, inputs, actions):
         return self.sess.run(self.action_grads, feed_dict={
-            self.inputs: inputs,
-            self.action: actions,
+            self.inputs[0]: inputs,
+            self.inputs[1]: actions,
         })
 
 

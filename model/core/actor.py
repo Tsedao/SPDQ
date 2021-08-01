@@ -20,7 +20,7 @@ class ActorNetwork(object):
     """
 
     def __init__(self, sess, config, feature_number, action_dim, window_size, learning_rate,
-                      action_bound, tau=0.001, batch_size=128,dtype=tf.float32):
+                      action_bound, num_vars=0, tau=0.001, batch_size=128,dtype=tf.float32):
         """
         Args:
             sess: a tensorflow session
@@ -50,15 +50,17 @@ class ActorNetwork(object):
 
 
         # Actor Network
-        self.inputs, self.out, self.scaled_out = self.create_actor_network()
+        with tf.name_scope('network'):
+            self.inputs, self.out, self.scaled_out = self.create_actor_network()
 
-        self.network_params = tf.trainable_variables()
+        self.network_params = tf.trainable_variables()[num_vars:]
 
         # Target Network
-        self.target_inputs, self.target_out, self.target_scaled_out = self.create_actor_network()
+        with tf.name_scope('target_network'):
+            self.target_inputs, self.out, self.target_scaled_out = self.create_actor_network()
 
         self.target_network_params = tf.trainable_variables()[
-                                     len(self.network_params):]
+                                     (len(self.network_params)+num_vars):]
 
         # Op for periodically updating target network with online network
         # weights
@@ -74,18 +76,18 @@ class ActorNetwork(object):
 
     def train(self, inputs, a_gradient):
         self.sess.run(self.optimize, feed_dict={
-            self.inputs: inputs,
+            self.inputs[0]: inputs,
             self.action_gradient: a_gradient
         })
 
     def predict(self, inputs):
         return self.sess.run(self.scaled_out, feed_dict={
-            self.inputs: inputs
+            self.inputs[0]: inputs
         })
 
     def predict_target(self, inputs):
         return self.sess.run(self.target_scaled_out, feed_dict={
-            self.target_inputs: inputs
+            self.target_inputs[0]: inputs
         })
 
     def update_target_network(self):

@@ -5,6 +5,7 @@ The deep deterministic policy gradient model. Contains main training loop and de
 import os
 import traceback
 import json
+import time
 import numpy as np
 import tensorflow as tf
 
@@ -45,6 +46,20 @@ class DDPG(BaseModel):
         self.summary_vars_r, self.summary_vars_val_r = tf.Variable(0.,dtype=tf.float64), tf.Variable(0.,dtype=tf.float64)
         self.summary_ops_r = tf.summary.scalar("Episode_reward",self.summary_vars_r)
         self.summary_ops_val_r = tf.summary.scalar("Episode_reward_val",self.summary_vars_val_r)
+
+        self.writer = tf.summary.FileWriter(self.summary_path, self.sess.graph)
+        self.num_episode = self.config['training']['episode']
+        self.batch_size = self.config['training']['batch_size']
+        self.n_step = self.config['training'].get('n_step',1)
+        self.training_max_step = self.config['training']['max_step']
+        self.training_max_step_size = self.config['training']['max_step_size']
+        self.validating_max_step = self.config['training']['max_step_val']
+        self.gamma = self.config['training']['gamma']
+        #self.buffer = proportional.Experience(self.config['training']['buffer_size'])
+        self.buffer = rank_based.Experience(self.config['training']['buffer_size'])
+        self.best_val_reward = 0
+        self.reward_summary_dict = {"epi":[],"reward_avg":[],"reward_std":[],"reward_sum":[]}
+        np.random.seed(self.config['training']['seed'])
 
     def build_summaries(self,scope):
         with tf.variable_scope(scope):
@@ -93,7 +108,7 @@ class DDPG(BaseModel):
 
         return best_r
 
-    def validate(self, episode_counter, verbose=True):
+    def validate(self, epi_counter, verbose=True):
         """
         Do validation on val env
         Args
@@ -110,64 +125,53 @@ class DDPG(BaseModel):
         if self.obs_normalizer:
             previous_observation = self.obs_normalizer(previous_observation)
 
-        for j in range(self.config['training']['max_step_val']):
+        for j in range(self.validating_max_step):
             action = self.actor.predict(np.expand_dims(previous_observation, axis=0)).squeeze(
                 axis=0)
 
-            if self.action_processor:
-                action_take = self.action_processor(action)
-            else:
-                action_take = action
             # step forward
-            observation, reward, done, _ = self.val_env.step(action_take)
+            observation, reward, done, _ = self.step(self.val_env,previous_observation,action)
 
-            if self.obs_normalizer:
-                observation = self.obs_normalizer(observation)
-
-
-            # add to buffer
-            # self.buffer.add(previous_observation, action, reward, done, observation)
-            self.buffer_val.add(previous_observation, action, reward, done, observation)
             val_ep_reward += reward
 
-            if self.buffer_val.size() >= self.batch_size:
-                # batch update
-                s_batch, a_batch, r_batch, t_batch, s2_batch = self.buffer_val.sample_batch(self.batch_size)
+            # Calculate targets
+            target_q = self.critic.predict_target(np.expand_dims(observation,axis=0),
+                             self.actor.predict_target(np.expand_dims(observation,axis=0)))
 
-                # Calculate targets
-                target_q = self.critic.predict_target(s2_batch, self.actor.predict_target(s2_batch))
-
-                y_i = []
-                for k in range(self.batch_size):
-                    if t_batch[k]:
-                        y_i.append(r_batch[k])
-                    else:
-                        y_i.append(r_batch[k] + self.gamma * target_q[k])
+            if done:
+                y = reward
+            else:
+                y = reward + self.gamma * target_q[0]
 
 
+            predicted_q_value, step_loss = self.critic.val(
+                                        np.expand_dims(previous_observation,axis=0),
+                                        np.expand_dims(action,axis=0),
+                                        np.reshape(y, (1, 1)),
+                                        np.ones((1,1)))
+            previous_observation = observation                                  # update obs
+            val_ep_max_q += np.amax(predicted_q_value)
+            val_ep_ave_q += np.mean(predicted_q_value)
+            val_ep_loss += np.mean(step_loss)
 
-                predicted_q_value, step_loss = self.critic.val(
-                                            s_batch, a_batch,
-                                            np.reshape(y_i, (self.batch_size, 1)),
-                                            np.ones((self.batch_size,1)))
+            summaries = self.sess.run(self.summary_ops_val, feed_dict = {
+                                    self.summary_vars_val[0] : np.mean(step_loss),
+                                    self.summary_vars_val[1] : np.amax(predicted_q_value)
+            })
 
-                val_ep_max_q += np.amax(predicted_q_value)
-                val_ep_ave_q += np.mean(predicted_q_value)
-                val_ep_loss += np.mean(step_loss)
+            [self.writer.add_summary(summary, self.validating_max_step*epi_counter+j) for summary in summaries]
+            self.writer.flush()
 
-                summaries = self.sess.run(self.summary_ops_val, feed_dict = {
-                                        self.summary_vars_val[0] : np.mean(step_loss),
-                                        self.summary_vars_val[1] : np.amax(predicted_q_value)
-                })
-
-                [self.writer.add_summary(summary, self.config['training']['max_step_val']*episode_counter+j) for summary in summaries]
-                self.writer.flush()
-
-            if done or j == self.config['training']['max_step_val'] - 1:
+            if done or j == self.validating_max_step - 1:
 
                 print('Episode: {:d}, Reward: {:.2f}, Qmax: {:.4f}, Qave: {:.4f}, target_predict_loss: {:.8f}'.format(
-                        episode_counter, val_ep_reward, (val_ep_max_q / float(j+1)),
+                        epi_counter, val_ep_reward, (val_ep_max_q / float(j+1)),
                         (val_ep_ave_q / float(j+1)) ,(val_ep_loss / float(j+1))))
+                reward_summary = self.sess.run(self.summary_ops_val_r, feed_dict = {
+                                            self.summary_vars_val_r : val_ep_reward
+                })
+                self.writer.add_summary(reward_summary,epi_counter)
+                self.writer.flush()
                 self.best_val_reward = self.save_best_model(val_ep_reward,self.best_val_reward)
                 break
 
@@ -181,20 +185,10 @@ class DDPG(BaseModel):
             debug:
         Returns:
         """
-        self.writer = tf.summary.FileWriter(self.summary_path, self.sess.graph)
         self.actor.update_target_network()
         self.critic.update_target_network()
-
-        np.random.seed(self.config['training']['seed'])
-        num_episode = self.config['training']['episode']
-        self.batch_size = self.config['training']['batch_size']
-        self.gamma = self.config['training']['gamma']
-        self.buffer_val = ReplayBuffer(self.config['training']['buffer_size_val'])
-        #self.buffer = proportional.Experience(self.config['training']['buffer_size'])
-        self.buffer = rank_based.Experience(self.config['training']['buffer_size'])
-        self.best_val_reward = 0
         # main training loop
-        for i in range(num_episode):
+        for i in range(self.num_episode):
             if verbose and debug:
                 print("Episode: " + str(i) + " Replay Buffer " + str(self.buffer.count()))
             print("*"*12+'training'+"*"*12)
@@ -208,98 +202,143 @@ class DDPG(BaseModel):
             ep_loss = 0
 
             # keeps sampling until done
-            for j in range(self.config['training']['max_step']):
-                action = self.actor.predict(np.expand_dims(previous_observation, axis=0)).squeeze(
-                    axis=0) + self.actor_noise()
+            for j in range(self.training_max_step):
+                start_time = time.time()
 
-                if self.action_processor:
-                    action_take = self.action_processor(action)
-                else:
-                    action_take = action
-                # step forward
-                observation, reward, done, _ = self.env.step(action_take)
+                obs, start_action, rewards, done, TD_errors,ep_max_q, ep_ave_q,ep_loss = self.train_one_step(
+                previous_observation,ep_max_q,ep_ave_q,ep_loss,i,j)
 
-                if self.obs_normalizer:
-                    observation = self.obs_normalizer(observation)
+                end_time = time.time()
 
-
-                target_q_single = self.critic.predict_target(np.expand_dims(observation, axis=0),
-                                    self.actor.predict_target(np.expand_dims(observation, axis=0)))
-
-                if done:
-                    y = reward
-                else:
-                    y = reward + self.gamma * target_q_single
-
-                TD_error = self.critic.compute_TDerror(np.expand_dims(previous_observation,axis=0),
-                                                       np.expand_dims(action_take, axis=0),
-                                                       y)[0][0][0]
+                print("elapsed time {:.4f}s".format(end_time-start_time))
                 # add to buffer
                 # self.buffer.add(previous_observation, action, reward, done, observation)
-                self.buffer.store((previous_observation, action, reward, done, observation),TD_error)
+                self.buffer.store((previous_observation, start_action, rewards, done, obs),TD_errors)
+                ep_reward += rewards
+                previous_observation = obs
 
-                if self.buffer.size() >= self.batch_size:
-                    # batch update
-                    (s_batch, a_batch, r_batch, t_batch, s2_batch), is_weights, indices = self.buffer.select(self.batch_size)
-                    # Calculate targets
-                    target_q = self.critic.predict_target(s2_batch, self.actor.predict_target(s2_batch))
-
-                    y_i = []
-                    for k in range(self.batch_size):
-                        if t_batch[k]:
-                            y_i.append(r_batch[k])
-                        else:
-                            y_i.append(r_batch[k] + self.gamma * target_q[k])
-
-                    # Update the critic given the targets
-
-                    TD_errors = self.critic.compute_TDerror(s_batch, a_batch,
-                                                        np.reshape(y_i, (self.batch_size, 1)))
-
-                    self.buffer.update_priority(indices, TD_errors[0].squeeze(axis=1))
-
-                    bias = TD_errors[0].squeeze(axis=1) * np.array(is_weights)  # importance sampling
-
-                    predicted_q_value, step_loss, _ = self.critic.train(
-                                                s_batch, a_batch,
-                                                np.reshape(y_i, (self.batch_size, 1)),
-                                                np.expand_dims(bias, axis=1))
-
-                    ep_max_q += np.amax(predicted_q_value)
-                    ep_ave_q += np.mean(predicted_q_value)
-                    ep_loss += np.mean(step_loss)
-
-                    summaries = self.sess.run(self.summary_ops, feed_dict = {
-                                            self.summary_vars[0] : np.mean(step_loss),
-                                            self.summary_vars[1] : np.amax(predicted_q_value)
-                    })
-
-                    [self.writer.add_summary(summary, self.config['training']['max_step']*i+j) for summary in summaries]
-                    self.writer.flush()
-
-                    # Update the actor policy using the sampled gradient
-                    a_outs = self.actor.predict(s_batch)
-                    grads = self.critic.action_gradients(s_batch, a_outs)
-                    self.actor.train(s_batch, grads[0])
-
-                    # Update target networks
-                    self.actor.update_target_network()
-                    self.critic.update_target_network()
-
-                ep_reward += reward
-                previous_observation = observation
-
-                if done or j == self.config['training']['max_step'] - 1:
+                if done or j == self.training_max_step - 1:
 
                     print('Episode: {:d}, Reward: {:.2f}, Qmax: {:.4f}, Qave: {:.4f}, target_predict_loss: {:.8f}'.format(
                             i, ep_reward, (ep_max_q / float(j+1)),
                             (ep_ave_q / float(j+1)) ,(ep_loss / float(j+1))))
+                    reward_summary = self.sess.run(self.summary_ops_r, feed_dict = {
+                                                self.summary_vars_r : ep_reward
+                    })
+                    self.writer.add_summary(reward_summary,i)
+                    self.writer.flush()
                     break
             print("*"*12+'validaing'+"*"*12)
             self.validate(i)
 
         self.save_model(verbose=True)
         print('Finish.')
+
+    def train_one_step(self, previous_observation, ep_max_q, ep_ave_q, ep_loss,
+                             epi_counter, step_counter):
+        TD_errors = 0
+        rewards = 0
+        # n-step TD-learning
+        for n in range(self.n_step):
+            action = self.actor.predict(np.expand_dims(previous_observation, axis=0)).squeeze(
+                axis=0) + self.actor_noise()
+
+            if n == 0:
+                start_action = action
+
+            observation, reward, done, _  = self.step(self.env, previous_observation,action)
+
+            target_q_single = self.critic.predict_target(np.expand_dims(observation, axis=0),
+                             self.actor.predict_target(np.expand_dims(observation, axis=0)))
+
+            if done:
+                y = np.array([[reward]])
+            else:
+                y = reward + self.gamma * target_q_single
+
+            TD_error = self.critic.compute_TDerror(np.expand_dims(previous_observation,axis=0),
+                                                   np.expand_dims(action, axis=0),
+                                                   y)[0][0][0]
+            previous_observation = observation
+            rewards += np.power(self.gamma,n)*reward
+            TD_errors += TD_error
+
+        if self.buffer.size() >= self.batch_size:
+            # batch update
+            (s_batch, a_batch, r_batch, t_batch, s2_batch), is_weights, indices = self.buffer.select(self.batch_size)
+            # Calculate targets
+            target_q = self.critic.predict_target(s2_batch, self.actor.predict_target(s2_batch))
+
+            y_i = []
+            for k in range(self.batch_size):
+                if t_batch[k]:
+                    y_i.append(r_batch[k])
+                else:
+                    y_i.append(r_batch[k] + self.gamma * target_q[k])
+
+            # Update the critic given the targets
+
+            TD_errors_batch = self.critic.compute_TDerror(s_batch, a_batch,
+                                                np.reshape(y_i, (self.batch_size, 1)))[0]
+
+            self.buffer.update_priority(indices, TD_errors_batch.squeeze(axis=1))
+
+            bias = TD_errors_batch.squeeze(axis=1) * np.array(is_weights)  # importance sampling
+
+            predicted_q_value, step_loss, _ = self.critic.train(
+                                        s_batch, a_batch,
+                                        np.reshape(y_i, (self.batch_size, 1)),
+                                        np.expand_dims(bias, axis=1))
+
+            ep_max_q += np.amax(predicted_q_value)
+            ep_ave_q += np.mean(predicted_q_value)
+            ep_loss += np.mean(step_loss)
+
+            summaries = self.sess.run(self.summary_ops, feed_dict = {
+                                    self.summary_vars[0] : np.mean(step_loss),
+                                    self.summary_vars[1] : np.amax(predicted_q_value)
+            })
+
+            [self.writer.add_summary(summary, self.training_max_step*epi_counter+step_counter
+              ) for summary in summaries]
+            self.writer.flush()
+
+            # Update the actor policy using the sampled gradient
+            a_outs = self.actor.predict(s_batch)
+            grads = self.critic.action_gradients(s_batch, a_outs)[0]
+            self.actor.train(s_batch, grads)
+
+            # Update target networks
+            self.actor.update_target_network()
+            self.critic.update_target_network()
+
+        return observation, start_action, rewards, done, TD_errors, ep_max_q, ep_ave_q, ep_loss
+
+    def step(self, env, previous_observation, action):
+
+        # step forward
+        observation, reward, done, _ = env.step(action)
+
+        if self.obs_normalizer:
+            observation = self.obs_normalizer(observation)
+
+        return observation, reward, done, _
+
+    def _predict_action(self,previous_observation):
+        return self.actor.predict(previous_observation)
+
+    def _predict_target_q(self, observation):
+        return self.critic.predict_target((observation),
+                 self.actor.predict_target(observation))
+
+    def _compute_tderror(self, observation):
+        pass
+
+    def _train_actor(self, observation):
+        pass
+
+    def _train_critic(self,observation):
+        pass
 
     def predict(self, observation):
         """ predict the next action using actor model, only used in deploy.
@@ -323,7 +362,7 @@ class DDPG(BaseModel):
         """
         if self.obs_normalizer:
             observation = self.obs_normalizer(observation)
-        action = self.actor.predict(np.expand_dims(observation, axis=0)).squeeze(axis=0)
+        action = self.actor.predict_target(np.expand_dims(observation, axis=0)).squeeze(axis=0)
         if self.action_processor:
             action = self.action_processor(action)
         return action

@@ -19,22 +19,24 @@ class SACCritics(TD3Critics):
         self.target_entropy = tf.constant(-critic1.action_dim**2,
                              dtype=self.dtype,name='target_entropy')
 
-        self.target_q_value = tf.placeholder(self.dtype, [None, 1])
-        self.bias = tf.placeholder(self.dtype, [None,1])
-        self.logprob = tf.placeholder(self.dtype, [None,1])
+        self.target_q_value = tf.placeholder(self.dtype, [None, 1],name='target_q')
+        self.bias = tf.placeholder(self.dtype, [None,1],name='bias')
+        self.logprob = tf.placeholder(self.dtype, [None,1],name='logprob')
 
-        self.target_out = tf.math.minimum(self.critic1.target_out,self.critic2.target_out) - self.alpha*self.logprob
-        self.out = tf.math.minimum(self.critic1.out,self.critic2.out) - self.alpha*self.logprob
+        self.q_out = tf.math.minimum(self.critic1.out,self.critic2.out)
+        self.q_target_out = tf.math.minimum(self.critic1.target_out,self.critic2.target_out)
+        # self.target_out = self.q_target_out - self.alpha*self.logprob
+        # self.out = self.q_out - self.alpha*self.logprob
 
-        self.action_grads_q1 = tf.gradients(self.out, self.critic1.action)
-        self.action_grads_q2 = tf.gradients(self.out, self.critic2.action)
+        self.action_grads_q1 = tf.gradients(self.q_out, self.critic1.action)
+        self.action_grads_q2 = tf.gradients(self.q_out, self.critic2.action)
         self.action_grads = [tf.math.add(x,y) for x,y in zip(self.action_grads_q1, self.action_grads_q2)]
 
         self.action_grads = tf.clip_by_global_norm(self.action_grads,5)[0][0]
 
-        self.logprob_grads = tf.clip_by_global_norm(tf.gradients(self.out, self.logprob),5)[0][0]
+        # self.logprob_grads = tf.clip_by_global_norm(tf.gradients(self.out, self.logprob),5)[0][0]
 
-        self.TD_error = tf.math.abs(self.target_q_value-self.out)
+        self.TD_error = tf.math.abs(self.target_q_value-self.q_out)
 
 
         self.loss_q1 = tf.keras.losses.MeanSquaredError()(self.target_q_value, self.critic1.out,
@@ -55,7 +57,7 @@ class SACCritics(TD3Critics):
         self.alpha_gradient = tf.clip_by_global_norm(tf.gradients(self.alpha_loss,[self.logalpha]),1)[0]
         self.optimize_alpha = tf.train.AdamOptimizer(learning_rate=1e-2,name='alpha_adam').apply_gradients(zip(self.alpha_gradient,[self.logalpha]))
 
-    def train(self, inputs, action, logprob, target_q_value, bias):
+    def train(self, inputs, action, target_q_value, bias):
         """
         Args:
             inputs: observation
@@ -65,17 +67,16 @@ class SACCritics(TD3Critics):
         inputs = inputs[:, :, -self.critic1.window_size:, :]
         self.critic1.training = True
         self.critic2.training = True
-        return self.sess.run([self.out, self.loss_q1, self.loss_q2,self.optimize_q1,self.optimize_q2], feed_dict={
-            self.critic1.inputs: inputs,
-            self.critic1.action: action,
-            self.critic2.inputs: inputs,
-            self.critic2.action: action,
+        return self.sess.run([self.q_out, self.loss_q1, self.loss_q2,self.optimize_q1,self.optimize_q2], feed_dict={
+            self.critic1.inputs[0]: inputs,
+            self.critic1.inputs[1]: action,
+            self.critic2.inputs[0]: inputs,
+            self.critic2.inputs[1]: action,
             self.target_q_value: target_q_value,
             self.bias: bias,
-            self.logprob: logprob
         })
 
-    def val(self, inputs, action, logprob, target_q_value, bias):
+    def val(self, inputs, action, logprob,target_q_value, bias):
         """
         Args:
             inputs: observation
@@ -85,14 +86,14 @@ class SACCritics(TD3Critics):
         inputs = inputs[:, :, -self.critic1.window_size:, :]
         self.critic1.training = False
         self.critic2.training = False
-        return self.sess.run([self.out, self.loss_q1, self.loss_q2,self.alpha_loss], feed_dict={
-            self.critic1.inputs: inputs,
-            self.critic1.action: action,
-            self.critic2.inputs: inputs,
-            self.critic2.action: action,
+        return self.sess.run([self.q_out, self.loss_q1, self.loss_q2,self.alpha_loss], feed_dict={
+            self.critic1.inputs[0]: inputs,
+            self.critic1.inputs[1]: action,
+            self.critic2.inputs[0]: inputs,
+            self.critic2.inputs[1]: action,
+            self.logprob: logprob,
             self.target_q_value: target_q_value,
-            self.bias: bias,
-            self.logprob: logprob
+            self.bias: bias
         })
 
 
@@ -103,51 +104,47 @@ class SACCritics(TD3Critics):
         })
 
 
-    def predict(self, inputs, action, logprob):
+    def predict(self, inputs, action):
         inputs = inputs[:, :, -self.critic1.window_size:, :]
         self.critic1.training = False
         self.critic2.training = False
-        return self.sess.run(self.out, feed_dict={
-            self.critic1.inputs: inputs,
-            self.critic1.action: action,
-            self.critic2.inputs: inputs,
-            self.critic2.action: action,
-            self.logprob: logprob
+        return self.sess.run(self.q_out, feed_dict={
+            self.critic1.inputs[0]: inputs,
+            self.critic1.inputs[1]: action,
+            self.critic2.inputs[0]: inputs,
+            self.critic2.inputs[1]: action
         })
 
-    def predict_target(self, inputs, action,logprob):
+    def predict_target(self, inputs, action):
         inputs = inputs[:, :, -self.critic1.window_size:, :]
         self.critic1.training = False
         self.critic2.training = False
-        return self.sess.run(self.target_out, feed_dict={
-            self.critic1.target_inputs: inputs,
-            self.critic1.target_action: action,
-            self.critic2.target_inputs: inputs,
-            self.critic2.target_action: action,
-            self.logprob:logprob
+        return self.sess.run(self.q_target_out, feed_dict={
+            self.critic1.target_inputs[0]: inputs,
+            self.critic1.target_inputs[1]: action,
+            self.critic2.target_inputs[0]: inputs,
+            self.critic2.target_inputs[1]: action
         })
 
-    def compute_TDerror(self, inputs, action, logprob,target_q_value):
+    def compute_TDerror(self, inputs, action,target_q_value):
         inputs = inputs[:, :, -self.critic1.window_size:, :]
         self.critic1.training = False
         self.critic2.training = False
         return self.sess.run(self.TD_error, feed_dict={
-            self.critic1.inputs: inputs,
-            self.critic1.action: action,
-            self.critic2.inputs: inputs,
-            self.critic2.action: action,
-            self.target_q_value: target_q_value,
-            self.logprob: logprob
+            self.critic1.inputs[0]: inputs,
+            self.critic1.inputs[1]: action,
+            self.critic2.inputs[0]: inputs,
+            self.critic2.inputs[1]: action,
+            self.target_q_value: target_q_value
         })
 
-    def action_logprob_gradients(self, inputs, action,logprob):
+    def action_gradients(self, inputs, action):
         inputs = inputs[:, :, -self.critic1.window_size:, :]
         self.critic1.training = False
         self.critic2.training = False
-        return self.sess.run([self.action_grads,self.logprob_grads], feed_dict={
-            self.critic1.inputs: inputs,
-            self.critic1.action: action,
-            self.critic2.inputs: inputs,
-            self.critic2.action: action,
-            self.logprob: logprob
+        return self.sess.run([self.action_grads], feed_dict={
+            self.critic1.inputs[0]: inputs,
+            self.critic1.inputs[1]: action,
+            self.critic2.inputs[0]: inputs,
+            self.critic2.inputs[1]: action
         })

@@ -22,7 +22,6 @@ class NeuralNetWork:
 
         # we concat the original stock price together with its portfolio weigths
         self.input_tensor = tf.placeholder(dtype, shape=[None, rows, columns, feature_number+1],name='feature_input')
-
         self.predicted_w = tf.placeholder(dtype, shape=[None, rows],name='predicted_actions')
         self._rows = rows
         self._columns = columns
@@ -246,7 +245,7 @@ class CNN(NeuralNetWork):
                     value = tf.reshape(value,shape=[-1,n_heads,self._rows,d_k // n_heads])
 
                     attention_weights = tf.keras.activations.softmax(tf.matmul(
-                                     query,tf.transpose(key,perm=[0,1,3,2])/tf.math.sqrt(float(d_k))),axis=-1)
+                                     query,tf.transpose(key,perm=[0,1,3,2])/tf.math.sqrt(tf.constant(d_k,dtype=self.dtype))),axis=-1)
                     q = tf.matmul(attention_weights,value)                      #[None, n_heads, asset_num, window_size]
                     q = tf.transpose(q,perm=[0,2,1,3])                          #[None, asset_num,  n_heads,  window_size]
                     q = tf.reshape(q,shape=[-1,self._rows,d_k])
@@ -260,11 +259,20 @@ class CNN(NeuralNetWork):
                     ffn_out = tf.keras.layers.Dropout(rate=dropout)(ffn_out,training=self.training)
                     out = tf.keras.layers.LayerNormalization(epsilon=1e-6)(mha_out + ffn_out)
                 network = out
+            elif layer["type"] == "TCN_MHA_OutA":
+                out = network
+                weights_out = tf.keras.layers.Dense(1)(out)                      #[None, asset_num, 1]
+                weights_out = tf.squeeze(weights_out,axis=-1)
+                weights_out = tf.keras.layers.BatchNormalization()(weights_out,training=self.training)
+                weights_out = tf.keras.activations.tanh(weights_out)
+                # weights_out = tf.keras.activations.sigmoid(weights_out)
+                # weights_out /= (tf.math.reduce_sum(weights_out,keepdims=True) + 1e-8)
             elif layer["type"] == "TCN_MHA_OutW":
                 out = network
                 weights_out = tf.keras.layers.Dense(1)(out)                      #[None, asset_num, 1]
                 weights_out = tf.squeeze(weights_out,axis=-1)
-                weights_out = tf.keras.activations.tanh(weights_out)
+                # weights_out = tf.keras.layers.BatchNormalization()(weights_out,training=self.training)
+                weights_out = tf.keras.activations.softmax(weights_out)
                 # weights_out = tf.keras.activations.sigmoid(weights_out)
                 # weights_out /= (tf.math.reduce_sum(weights_out,keepdims=True) + 1e-8)
                 network = weights_out
@@ -272,12 +280,16 @@ class CNN(NeuralNetWork):
                 out = network
                 out = tf.keras.layers.Dense(1)(out)                              #[None, asset_num, 1]
                 out = tf.squeeze(out,axis=-1)
+                out = tf.keras.layers.BatchNormalization()(out, training=self.training)
+                out = tf.keras.activations.relu(out)
                 out = tf.keras.layers.Dense(1)(out)                              #[None, 1]
                 network = out
             elif layer["type"] == "TCN_MHA_Out":
                 out = network
                 out = tf.keras.layers.Dense(1)(out)                              #[None, asset_num, 1]
                 out = tf.squeeze(out,axis=-1)                                    #[None, asset_num]
+                out = tf.keras.layers.BatchNormalization()(out, training=self.training)
+                out = tf.keras.activations.relu(out)
                 network = out
             else:
                 raise ValueError("the layer {} not supported.".format(layer["type"]))

@@ -6,10 +6,10 @@ from ..core import nn
 
 class DDPGActor(ActorNetwork):
     def __init__(self, sess, config, feature_number, action_dim, window_size, learning_rate,
-                      action_bound, layers, tau=0.001, batch_size=128,dtype=tf.float32):
+                      action_bound,layers,num_vars, tau=0.001, batch_size=128,dtype=tf.float32):
         self.layers = layers
         ActorNetwork.__init__(self, sess, config, feature_number, action_dim,
-                   window_size, learning_rate, action_bound, tau, batch_size,dtype=dtype)
+                   window_size, learning_rate, action_bound,num_vars, tau, batch_size,dtype=dtype)
         # This gradient will be provided by the critic network
         self.action_gradient = tf.placeholder(self.dtype, [None] + [self.action_dim])
 
@@ -17,7 +17,7 @@ class DDPGActor(ActorNetwork):
         self.unnormalized_actor_gradients = tf.gradients(
             self.scaled_out, self.network_params, self.action_gradient)
         self.actor_gradients = list(map(lambda x: tf.math.divide(x, self.batch_size), self.unnormalized_actor_gradients))
-
+        self.actor_gradients, _ = tf.clip_by_global_norm(self.actor_gradients,5.0)
         # Optimization Op
         # new_lr = initial_learning_rate * decay_rate ^ (step / decay_steps)
         self.lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
@@ -39,7 +39,7 @@ class DDPGActor(ActorNetwork):
         # Scale output to -action_bound to action_bound
         scaled_out = tf.multiply(out, self.action_bound)
 
-        return inputs, out, scaled_out
+        return [inputs], out, scaled_out
 
     def train(self, inputs, a_gradient):
         """
@@ -50,7 +50,7 @@ class DDPGActor(ActorNetwork):
         inputs = inputs[:, :, -self.window_size:, :]
         self.actor_net.training = True
         self.sess.run(self.optimize, feed_dict={
-            self.inputs: inputs,
+            self.inputs[0]: inputs,
             self.action_gradient: a_gradient
         })
 
@@ -58,12 +58,12 @@ class DDPGActor(ActorNetwork):
         inputs = inputs[:, :, -self.window_size:, :]
         self.actor_net.training = False
         return self.sess.run(self.scaled_out, feed_dict={
-            self.inputs: inputs
+            self.inputs[0]: inputs
         })
 
     def predict_target(self, inputs):
         self.actor_net.training = False
         inputs = inputs[:, :, -self.window_size:, :]
         return self.sess.run(self.target_scaled_out, feed_dict={
-            self.target_inputs: inputs
+            self.target_inputs[0]: inputs
         })

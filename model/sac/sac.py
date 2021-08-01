@@ -41,7 +41,7 @@ class SAC(DDPG):
 
         return summary_ops, summary_vars
 
-    def validate(self, episode_counter, verbose=True):
+    def validate(self, epi_counter, verbose=True):
         """
         Do validation on val env
         Args
@@ -55,7 +55,6 @@ class SAC(DDPG):
         val_ep_loss_1 = 0
         val_ep_loss_2 = 0
         val_ep_alpha_loss = 0
-
         previous_observation, _ = self.val_env.reset()
         if self.obs_normalizer:
             previous_observation = self.obs_normalizer(previous_observation)
@@ -75,56 +74,58 @@ class SAC(DDPG):
                 observation = self.obs_normalizer(observation)
 
 
-            # add to buffer
-            # self.buffer.add(previous_observation, action, reward, done, observation)
-            self.buffer_val.add(previous_observation, (action, logprob), reward, done, observation)
+
+            # Calculate targets
+            a_t, l_t = self.actor.predict_target(np.expand_dims(observation,axis=0))
+            target_q = self.saccritics.predict_target(np.expand_dims(observation,axis=0),
+                                                      a_t)
+
+            alpha = self.sess.run(self.saccritics.alpha)
+            if done:
+                y =  reward
+            else:
+                y = reward + self.gamma * (target_q[0] - alpha * l_t[0])
+
+
+            print('y',y)
+            print(np.reshape(y, (1, 1)).shape)
+            predicted_q_value, q1_loss, q2_loss, alpha_loss = self.saccritics.val(
+                                                np.expand_dims(previous_observation,axis=0),
+                                                np.expand_dims(action,axis=0),
+                                                np.expand_dims(logprob,axis=0),
+                                                np.reshape(y, (1, 1)),
+                                                np.ones((1,1)))
+
+            val_ep_max_q += np.amax(predicted_q_value)
+            val_ep_loss_1 += np.mean(q1_loss)
+            val_ep_loss_2 += np.mean(q2_loss)
+            val_ep_alpha_loss += np.mean(alpha_loss)
+
+            previous_observation = observation
             val_ep_reward += reward
 
-            if self.buffer_val.size() >= self.batch_size:
-                # batch update
-                s_batch, al_batch, r_batch, t_batch, s2_batch = self.buffer_val.sample_batch(self.batch_size)
+            summaries = self.sess.run(self.summary_ops_val, feed_dict = {
+                                        self.summary_vars_val[0] : np.mean(q1_loss),
+                                        self.summary_vars_val[1] : np.mean(q2_loss),
+                                        self.summary_vars_val[2] : np.amax(predicted_q_value),
+                                        self.summary_vars_val[3] : np.mean(alpha_loss)
+            })
 
-                a_batch, l_batch = np.vstack(al_batch[:,0]), np.vstack(al_batch[:,1])
+            [self.writer.add_summary(summary, self.validating_max_step*epi_counter+j) for summary in summaries]
+            self.writer.flush()
 
-                # Calculate targets
-                target_q = self.saccritics.predict_target(s2_batch, *self.actor.predict_target(s2_batch))
-
-                y_i = []
-                for k in range(self.batch_size):
-                    if t_batch[k]:
-                        y_i.append(r_batch[k])
-                    else:
-                        y_i.append(r_batch[k] + self.gamma * target_q[k,:])
-
-
-
-                predicted_q_value, q1_loss, q2_loss, alpha_loss = self.saccritics.val(
-                                                    s_batch, a_batch,l_batch,
-                                                    np.reshape(y_i, (self.batch_size, 1)),
-                                                    np.ones((self.batch_size,1)))
-
-                val_ep_max_q += np.amax(predicted_q_value)
-                val_ep_loss_1 += np.mean(q1_loss)
-                val_ep_loss_2 += np.mean(q2_loss)
-                val_ep_alpha_loss += np.mean(alpha_loss)
-
-                summaries = self.sess.run(self.summary_ops_val, feed_dict = {
-                                            self.summary_vars_val[0] : np.mean(q1_loss),
-                                            self.summary_vars_val[1] : np.mean(q2_loss),
-                                            self.summary_vars_val[2] : np.amax(predicted_q_value),
-                                            self.summary_vars_val[3] : np.mean(alpha_loss)
-                })
-
-                [self.writer.add_summary(summary, self.config['training']['max_step_val']*episode_counter+j) for summary in summaries]
-                self.writer.flush()
-
-            if  j == self.config['training']['max_step_val'] - 1:
+            if  j == self.validating_max_step - 1:
                 print("*"*12+'validaing'+"*"*12)
                 print('Episode: {:d}, Reward: {:.2f}, Qmax: {:.4f}, loss1: {:.8f}, loss2: {:.8f}, alpha loss: {:.8f}'.format(
-                            episode_counter, val_ep_reward, (val_ep_max_q / float(j+1)),
+                            epi_counter, val_ep_reward, (val_ep_max_q / float(j+1)),
                              (val_ep_loss_1 / float(j+1)),
                             (val_ep_loss_2 / float(j+1)),
                             (val_ep_alpha_loss / float(j+1))))
+                reward_summary = self.sess.run(self.summary_ops_val_r, feed_dict = {
+                                            self.summary_vars_val_r : val_ep_reward
+                })
+                self.writer.add_summary(reward_summary,epi_counter)
+                self.writer.flush()
                 self.best_val_reward = self.save_best_model(val_ep_reward,self.best_val_reward)
             if done:
                 break
@@ -138,23 +139,13 @@ class SAC(DDPG):
             debug:
         Returns:
         """
-        self.writer = tf.summary.FileWriter(self.summary_path, self.sess.graph)
-
         self.actor.update_target_network()
         self.critic.update_target_network()
         self.critic_2.update_target_network()
         np.random.seed(self.config['training']['seed'])
-        num_episode = self.config['training']['episode']
-        self.batch_size = self.config['training']['batch_size']
-
-        self.gamma = self.config['training']['gamma']
-        self.buffer_val = ReplayBuffer(self.config['training']['buffer_size_val'])
-        #self.buffer = proportional.Experience(self.config['training']['buffer_size'])
-        # self.buffer = rank_based.Experience(self.config['training']['buffer_size'])
         self.buffer = ReplayBuffer(self.config['training']['buffer_size'])
-        self.best_val_reward = 0
         # main training loop
-        for i in range(num_episode):
+        for i in range(self.num_episode):
             if verbose and debug:
                 print("Episode: " + str(i) + " Replay Buffer " + str(self.buffer.count()))
 
@@ -170,59 +161,65 @@ class SAC(DDPG):
             ep_loss_2 = 0
             ep_alpha_loss = 0
             # keeps sampling until done
-            for j in range(self.config['training']['max_step']):
-                # with open('test_logdiff.npy','wb') as f:
-                #     np.save('test_logdiff.npy',np.expand_dims(previous_observation, axis=0))
-                # action, logprob = self.actor.predict(np.expand_dims(previous_observation, axis=0))
-                action, logprob, p_outs, d_outs, mu, sigma,x, mw = self.actor.test_predict(np.expand_dims(previous_observation, axis=0))
+            for j in range(self.training_max_step):
+                rewards = 0
+                for n in range(self.n_step):
+                    # with open('test_logdiff.npy','wb') as f:
+                    #     np.save('test_logdiff.npy',np.expand_dims(previous_observation, axis=0))
+                    # action, logprob = self.actor.predict(np.expand_dims(previous_observation, axis=0))
+                    action, logprob, p_outs, d_outs, mu, sigma,x, mw = self.actor.test_predict(np.expand_dims(previous_observation, axis=0))
 
-                # print(np.isnan(previous_observation).any())
-                # print(self.sess.run(self.actor.tau_tf))
-                # print(self.sess.run([self.actor.test_x,
-                #                      self.actor.actor_net.output,
-                #                      self.actor.test_mu,
-                #                      self.actor.test_sigma],feed_dict={self.actor.actor_net.input_tensor:np.expand_dims(previous_observation, axis=0)}))
-                print(np.sum(action,axis=1))
-                print('logprob')
-                print(logprob)
-                print('prob')
-                print(p_outs)
-                print('det')
-                print(d_outs)
-                action = np.squeeze(action,axis=0)
-                logprob = np.squeeze(logprob,axis=0)
+                    # print(np.isnan(previous_observation).any())
+                    # print(self.sess.run(self.actor.tau_tf))
+                    # print(self.sess.run([self.actor.test_x,
+                    #                      self.actor.actor_net.output,
+                    #                      self.actor.test_mu,
+                    #                      self.actor.test_sigma],feed_dict={self.actor.actor_net.input_tensor:np.expand_dims(previous_observation, axis=0)}))
+                    print(np.sum(action,axis=1))
+                    print('isnan',np.isnan(previous_observation).any())
+                    print('logprob')
+                    print(logprob)
+                    print('prob')
+                    print(p_outs)
+                    print('det')
+                    print(d_outs)
+                    action = np.squeeze(action,axis=0)
+                    logprob = np.squeeze(logprob,axis=0)
 
-                if self.action_processor:
-                    action_take = self.action_processor(action)
-                else:
-                    action_take = action
-                # step forward
-                observation, reward, done, _ = self.env.step(action_take)
+                    if self.action_processor:
+                        action_take = self.action_processor(action)
+                    else:
+                        action_take = action
+                    # step forward
+                    observation, reward, done, _ = self.env.step(action_take)
 
-                if self.obs_normalizer:
-                    observation = self.obs_normalizer(observation)
+                    if self.obs_normalizer:
+                        observation = self.obs_normalizer(observation)
 
 
+
+                    # TD_error = self.saccritics.compute_TDerror(np.expand_dims(previous_observation,axis=0),
+                    #                                        np.expand_dims(action_take, axis=0),
+                    #                                        np.expand_dims(logprob,axis=0),
+                    #                                        y)[0][0]
+                    # add to buffer
+                    # self.buffer.store((previous_observation, action,logprob, reward, done, observation),TD_error)
+
+                    previous_observation = observation
+                    rewards += np.power(self.gamma,n)*reward
+                action_t, logprob_t = self.actor.predict_target(np.expand_dims(observation, axis=0))
                 target_q_single = self.saccritics.predict_target(np.expand_dims(observation, axis=0),
-                                    *self.actor.predict_target(np.expand_dims(observation, axis=0)))
+                                                                action_t)
 
                 print('**************Critic networks*****************')
                 # target_q_list = [target_q_single_1,target_q_single_2]
                 # min_q_ix = np.argmin(target_q_list)
-
+                alpha = self.sess.run(self.saccritics.alpha)
                 if done:
-                    y = reward
+                    y = np.array([[rewards]])
                 else:
-                    y = reward + self.gamma * target_q_single
-
-
-                # TD_error = self.saccritics.compute_TDerror(np.expand_dims(previous_observation,axis=0),
-                #                                        np.expand_dims(action_take, axis=0),
-                #                                        np.expand_dims(logprob,axis=0),
-                #                                        y)[0][0]
-                # add to buffer
-                self.buffer.add(previous_observation, (action, logprob), reward, done, observation)
-                # self.buffer.store((previous_observation, action,logprob, reward, done, observation),TD_error)
+                    y = rewards + np.power(self.gamma,self.n_step) * (target_q_single - alpha * logprob_t)
+                self.buffer.add(previous_observation, (action, logprob), rewards, done, observation)
                 if self.buffer.size() >= self.batch_size:
                     # batch update
                     #s_batch, a_batch, r_batch, t_batch, s2_batch = self.buffer.sample_batch(batch_size)
@@ -232,8 +229,10 @@ class SAC(DDPG):
 
                     a_batch, l_batch = np.vstack(al_batch[:,0]), np.vstack(al_batch[:,1])
 
-
-                    target_q = self.saccritics.predict_target(s2_batch, *self.actor.predict_target(s2_batch))
+                    print('s2_batch_is_nan',np.isnan(s2_batch).any())
+                    a2_t, l2_b = self.actor.predict_target(s2_batch)
+                    target_q = self.saccritics.predict_target(s2_batch, a2_t)
+                    alpha = self.sess.run(self.saccritics.alpha)
                     print(target_q)
                     y_i = []
                     TD_errors = []
@@ -242,7 +241,7 @@ class SAC(DDPG):
                         if t_batch[k]:
                             y_tmp = r_batch[k]
                         else:
-                            y_tmp = r_batch[k] + self.gamma * target_q[k,:]
+                            y_tmp = r_batch[k] + self.gamma * (target_q[k,:] - alpha * l2_b[k,:])
                         # Update the critic given the targets
 
 
@@ -265,7 +264,7 @@ class SAC(DDPG):
                     #                                 np.reshape(y_i, (self.batch_size, 1)),
                     #                                 np.expand_dims(bias, axis=1))
                     predicted_q_value, q1_loss, q2_loss, _, _, = self.saccritics.train(
-                                                    s_batch, a_batch,l_batch,
+                                                    s_batch, a_batch,
                                                     np.reshape(y_i, (self.batch_size, 1)),
                                                     np.ones((self.batch_size,1)))
                     print(y_i)
@@ -287,7 +286,7 @@ class SAC(DDPG):
                     print(sigma[0,...])
                     print('x')
                     print(x[0,...])
-                    grads = self.saccritics.action_logprob_gradients(s_batch, a_outs, l_outs)
+                    grads = self.saccritics.action_gradients(s_batch, a_outs)
                     # print(self.sess.run(self.saccritics.alpha))
                     if j % self.policy_delay == 0:
                         self.actor.train(s_batch, *grads)
@@ -315,13 +314,13 @@ class SAC(DDPG):
                                             self.summary_vars[3] : np.mean(alpha_loss)
                     })
 
-                    [self.writer.add_summary(summary, self.config['training']['max_step']*i+j) for summary in summaries]
+                    [self.writer.add_summary(summary, self.training_max_step*i+j) for summary in summaries]
                     self.writer.flush()
 
                 ep_reward += reward
                 previous_observation = observation
 
-                if done or j == self.config['training']['max_step'] - 1:
+                if done or j == self.training_max_step - 1:
                     # self.buffer.tree.print_tree()
                     # summary_str = self.sess.run(self.summary_ops, feed_dict={
                     #     self.summary_vars[0]: ep_reward,
@@ -337,6 +336,11 @@ class SAC(DDPG):
                              (ep_loss_1 / float(j+1)),
                             (ep_loss_2 / float(j+1)),
                             (ep_alpha_loss / float(j+1))))
+                    reward_summary = self.sess.run(self.summary_ops_r, feed_dict = {
+                                                self.summary_vars_r : ep_reward
+                    })
+                    self.writer.add_summary(reward_summary,i)
+                    self.writer.flush()
                     break
             self.validate(i,verbose=verbose)
         self.save_model(verbose=True)

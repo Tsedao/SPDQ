@@ -40,6 +40,8 @@ class Experience(object):
 
     def size(self):
         return self.record_size
+    def count(self):
+        return self.size()
 
     def build_distribution(self):
         # P(i) = (rank i) ^ (-alpha) / sum ((rank i) ^ (-alpha))

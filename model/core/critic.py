@@ -37,16 +37,16 @@ class CriticNetwork(object):
 
         # Create the critic network
         with tf.name_scope('network'):
-            self.inputs, self.action, self.out = self.create_critic_network()
-
+            self.inputs, self.out = self.create_critic_network()
+        self.action = self.inputs[1]
         self.network_params = tf.trainable_variables()[num_actor_vars:]
 
         # Target Network
         with tf.name_scope('target_network'):
-            self.target_inputs, self.target_action, self.target_out = self.create_critic_network()
+            self.target_inputs, self.target_out = self.create_critic_network()
+        self.target_action = self.inputs[1]
 
         self.target_network_params = tf.trainable_variables()[(len(self.network_params) + num_actor_vars):]
-
         # Op for periodically updating target network with online network
         # weights with regularization
         self.update_target_network_params = \
@@ -55,10 +55,10 @@ class CriticNetwork(object):
              for i in range(len(self.target_network_params))]
 
         # Network target (y_i)
-        self.target_q_value = tf.placeholder(self.dtype, [None, 1])
+        self.target_q_value = tf.placeholder(self.dtype, [None, 1],name='target_q')
 
         # Sampling bias (w_i * TD_error_i)
-        self.bias = tf.placeholder(self.dtype, [None,1])
+        self.bias = tf.placeholder(self.dtype, [None,1],name='sampling_bias')
 
         # Define loss and optimization Op
         self.loss = tf.keras.losses.MeanSquaredError()(self.target_q_value, self.out,
@@ -73,6 +73,7 @@ class CriticNetwork(object):
                                                     staircase=True)
 
         self.loss_gradients = tf.gradients(self.loss, self.network_params)
+        self.loss_gradients, _ = tf.clip_by_global_norm(self.loss_gradients,5.0)
         self.optimize = tf.keras.optimizers.Adam(
             self.lr_schedule,name='mse_adam').apply_gradients(zip(self.loss_gradients,self.network_params))
 
@@ -83,27 +84,27 @@ class CriticNetwork(object):
 
     def train(self, inputs, action, target_q_value):
         return self.sess.run([self.out, self.loss, self.optimize], feed_dict={
-            self.inputs: inputs,
-            self.action: action,
+            self.inputs[0]: inputs,
+            self.inputs[1]: action,
             self.target_q_value: target_q_value
         })
 
     def predict(self, inputs, action):
         return self.sess.run(self.out, feed_dict={
-            self.inputs: inputs,
-            self.action: action
+            self.inputs[0]: inputs,
+            self.inputs[1]: action
         })
 
     def predict_target(self, inputs, action):
         return self.sess.run(self.target_out, feed_dict={
-            self.target_inputs: inputs,
-            self.target_action: action
+            self.target_inputs[0]: inputs,
+            self.target_inputs[1]: action
         })
 
     def action_gradients(self, inputs, actions):
         return self.sess.run(self.action_grads, feed_dict={
-            self.inputs: inputs,
-            self.action: actions
+            self.inputs[0]: inputs,
+            self.inputs[1]: actions
         })
 
     def update_target_network(self):

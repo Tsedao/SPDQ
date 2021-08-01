@@ -45,17 +45,17 @@ class SACActor(object):
 
         # This gradient will be provided by the critic network
         self.action_gradient = tf.placeholder(self.dtype, [None] + [self.action_dim],name='action_gradient')
-        self.logprob_gradient = tf.placeholder(self.dtype,[None,1],name='logprob_gradient')
+        # self.logprob_gradient = tf.placeholder(self.dtype,[None,1],name='logprob_gradient')
 
         # Combine the gradients here
         self.unnormalized_action_gradients = tf.gradients(
             self.scaled_out, self.network_params, self.action_gradient)
-        self.unnormalized_logprob_gradients = tf.gradients(
-            self.logprob, self.network_params, self.logprob_gradient)
-        self.unnormalized_actor_gradients = [tf.math.add(x,y) for x, y in zip(
-            self.unnormalized_action_gradients,self.unnormalized_logprob_gradients)]
+        # self.unnormalized_logprob_gradients = tf.gradients(
+        #     self.logprob, self.network_params, self.logprob_gradient)
+        # self.unnormalized_actor_gradients = [tf.math.add(x,y) for x, y in zip(
+        #     self.unnormalized_action_gradients,self.unnormalized_logprob_gradients)]
         #self.unnormalized_actor_gradients += self.unnormalized_action_gradients[-2:]
-        self.actor_gradients = list(map(lambda x: tf.math.divide(x, self.batch_size), self.unnormalized_actor_gradients))
+        self.actor_gradients = list(map(lambda x: tf.math.divide(x, self.batch_size), self.unnormalized_action_gradients))
 
         self.actor_gradients = tf.clip_by_global_norm(self.actor_gradients,5.0)[0]
 
@@ -153,7 +153,7 @@ class SACActor(object):
 
         return feature_input, z, logprob_z, prob, det, m_mu, m_sigma, x, mixture_weights
 
-    def train(self, inputs, a_gradient,l_gradient):
+    def train(self, inputs, a_gradient):
         """
         Args:
             inputs: a observation with shape [None, action_dim, window_length, feature_number]
@@ -163,8 +163,7 @@ class SACActor(object):
 
         self.sess.run(self.optimize, feed_dict={
             self.inputs: inputs,
-            self.action_gradient: a_gradient,
-            self.logprob_gradient: l_gradient
+            self.action_gradient: a_gradient
         })
 
     def predict(self, inputs):

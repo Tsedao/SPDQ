@@ -33,7 +33,7 @@ class QRCritic(object):
         # self.tau = config['training']['tau']
         # self.batch_size = config['training']['batch size']
         self.layers = layers
-        self.qrtau = tf.constant(np.expand_dims((2*np.arange(self.num_quart)+1)/(2.0*self.num_quart),axis=0))
+        self.qrtau = tf.constant(np.expand_dims((2*np.arange(self.num_quart)+1)/(2.0*self.num_quart),axis=0),dtype=self.dtype)
         # Create the critic network
         with tf.name_scope('network'):
             self.inputs, self.action, self.quart_out = self.create_critic_network()
@@ -66,11 +66,11 @@ class QRCritic(object):
         # Sampling bias (w_i * TD_error_i)
         self.bias = tf.placeholder(self.dtype, [None,1],name='bias')
 
-        self.out = self.quart_out - self.alpha*self.logprob
-        self.target_out = self.target_quart_out - self.alpha*self.logprob
+        # self.out = self.quart_out - self.alpha*self.logprob
+        # self.target_out = self.target_quart_out - self.alpha*self.logprob
 
         # Define loss and optimization Op
-        diff = self.target_q_value - self.out
+        diff = self.target_q_value - self.quart_out
         loss = self.huber(diff) * tf.math.abs(self.qrtau - tf.cast(diff<0,self.dtype))
         self.loss = tf.math.reduce_mean(self.bias*loss, axis=1,keepdims=True)
 
@@ -89,8 +89,8 @@ class QRCritic(object):
 
         self.num_trainable_vars = len(self.network_params) + len(self.target_network_params)
 
-        self.action_grads = tf.gradients(self.out, self.action)[0]
-        self.logprob_grads = tf.gradients(self.out, self.logprob)[0]
+        self.action_grads = tf.gradients(self.quart_out, self.action)[0]
+        # self.logprob_grads = tf.gradients(self.out, self.logprob)[0]
 
 
         self.alpha_loss = tf.reduce_mean(-self.alpha*(self.logprob + self.target_entropy))
@@ -108,7 +108,7 @@ class QRCritic(object):
         quart_out = tf.keras.layers.Dense(self.num_quart,activation=None,dtype=self.dtype)(out)
         return inputs, action, quart_out
 
-    def train(self, inputs, action, logprob, target_q_value, bias):
+    def train(self, inputs, action, target_q_value, bias):
         """
         Args:
             inputs: observation
@@ -117,12 +117,11 @@ class QRCritic(object):
         """
         inputs = inputs[:, :, -self.window_size:, :]
         self.critic_net.training = True
-        return self.sess.run([self.out, self.loss, self.optimize, self.optimize_alpha], feed_dict={
+        return self.sess.run([self.quart_out, self.loss, self.optimize], feed_dict={
             self.inputs: inputs,
             self.action: action,
             self.target_q_value: target_q_value,
-            self.bias: bias,
-            self.logprob: logprob
+            self.bias: bias
         })
 
     def val(self, inputs, action, logprob, target_q_value, bias):
@@ -134,43 +133,39 @@ class QRCritic(object):
         """
         inputs = inputs[:, :, -self.window_size:, :]
         self.critic_net.training = False
-        return self.sess.run([self.out, self.loss, self.alpha_loss], feed_dict={
+        return self.sess.run([self.quart_out, self.loss, self.alpha_loss], feed_dict={
             self.inputs: inputs,
             self.action: action,
+            self.logprob:logprob,
             self.target_q_value: target_q_value,
-            self.bias: bias,
-            self.logprob: logprob
+            self.bias: bias
         })
 
-    def compute_TDerror(self, inputs, action, logprob, target_q_value):
+    def compute_TDerror(self, inputs, action, target_q_value):
         inputs = inputs[:, :, -self.window_size:, :]
         self.critic_net.training = False
         return self.sess.run(self.TD_error, feed_dict={
             self.inputs: inputs,
             self.action: action,
-            self.target_q_value: target_q_value,
-            self.logprob: logprob
+            self.target_q_value: target_q_value
         })
 
-    def predict(self, inputs, action,logprob):
-        return self.sess.run(self.out, feed_dict={
+    def predict(self, inputs, action):
+        return self.sess.run(self.quart_out, feed_dict={
             self.inputs: inputs,
-            self.action: action,
-            self.logprob: logprob
+            self.action: action
         })
 
-    def predict_target(self, inputs, action, logprob):
-        return self.sess.run(self.target_out, feed_dict={
+    def predict_target(self, inputs, action):
+        return self.sess.run(self.target_quart_out, feed_dict={
             self.target_inputs: inputs,
-            self.target_action: action,
-            self.logprob: logprob
+            self.target_action: action
         })
 
-    def action_logprob_gradients(self, inputs, actions, logprob):
-        return self.sess.run([self.action_grads,self.logprob_grads], feed_dict={
+    def action_gradients(self, inputs, actions):
+        return self.sess.run([self.action_grads], feed_dict={
             self.inputs: inputs,
-            self.action: actions,
-            self.logprob: logprob
+            self.action: actions
         })
 
     def train_alpha(self,logprob):
