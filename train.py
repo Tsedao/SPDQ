@@ -1,5 +1,6 @@
 import numba
 import numpy as np
+import pandas as pd
 
 EPS = 1e-6
 def test_model(env, model, policy_delay):
@@ -42,50 +43,45 @@ def get_path(mode,
              episode,
              window_size,
              region,
+             beta =0,
              n_step=1,
-             use_batch_norm = False,
-             use_obs_normalizer = False,
+             detrend = False,
              best=False,num_mixture=None):
 
     assert mode in ['weights', 'results']
-    assert model in ['ddpg', 'td3','d3pg','sac','qrsac']
+    assert model in ['ddpg', 'td3','d3pg','sac','qrsac','hiro']
 
     if best:
         model= 'best_'+model
 
-    if use_batch_norm:
-        batch_norm_str = 'batch_norm'
+    if detrend:
+        detrend_str = 'detrend'
     else:
-        batch_norm_str = 'no_batch_norm'
-
-    if use_obs_normalizer:
-        normailzed_str = "normalized"
-    else:
-        normailzed_str = "no_normalized"
+        detrend_str = 'no_detrend'
 
 
 
-    return '{}/{}/window_{}_{}_{}_eps_{}_mix_{}_step_{}_{}_checkpoint.ckpt'.format(mode,
+    return '{}/{}/window_{}_detrend_{}_eps_{}_mix_{}_step_{}_beta_{}_{}_checkpoint.ckpt'.format(mode,
                                                             model,
                                                             window_size,
-                                                            batch_norm_str,
-                                                            normailzed_str,
+                                                            detrend,
                                                             episode,
                                                             str(num_mixture),
+                                                            beta,
                                                             n_step,
                                                             region)
 
-def get_variable_scope(window_size, use_batch_norm = False, use_obs_normalizer = False):
-    if use_batch_norm:
-        batch_norm_str = 'batch_norm'
+def get_variable_scope(window_size, asset_num=23, num_mixture=None, beta=0,detrend = False):
+    if detrend:
+        detrend_str = 'detrend'
     else:
-        batch_norm_str = 'no_batch_norm'
+        detrend_str = 'no_detrend'
 
-    if use_obs_normalizer:
-        normailzed_str = "normalized"
-    else:
-        normailzed_str = "no_normalized"
-    return 'window_{}_{}'.format(window_size, batch_norm_str, normailzed_str)
+    return 'window_{}_action_dim_{}_m_{}_b_{}_{}'.format(window_size,
+                                                        asset_num,
+                                                        num_mixture,
+                                                        beta,
+                                                        detrend_str)
 
 def obs_normalizer(observation):
     """ Preprocess observation obtained by environment
@@ -132,7 +128,31 @@ def normalize_obs_logdiff(obs):
 
     return np.concatenate([np.where(logdiff==-np.inf,0,logdiff),obs[:,1:,-2:]],axis=-1)
 
-def normalize_obs_diff_2(obs,scaling=5):
+def normalize_obs_diff_2(obs,scaling=20,cover=1):
+    """
+    Inputs:
+        obs:[asset_num,window_length,feature_num] obs must bigger than zero
+    Return:
+        normalized_obs:[asset_num,window_length,feature_num]
+    """
+    denominator = obs[:,-1:,:-cover]
+    out = (( obs[:,:,:-cover] / (denominator+EPS) )-1)*scaling
+    out = np.concatenate([out,obs[:,:,-cover:]],axis=-1)
+    assert (np.isnan(out).any() or np.isinf(out).any()) == False
+    return out
+
+def detrend_2(obs,scaling=20):
+    """
+    Detrend the input time series to stationary form by one-step differencing
+    """
+    normalized_obs = normalize_obs_diff_2(obs,scaling)
+    forwoard_shift_obs = shift5_numba(normalized_obs,1)
+    out = normalized_obs[:,1:,:-1] - forwoard_shift_obs[:,1:,:-1]
+    out = np.concatenate([out, normalized_obs[:,1:,-1:]],axis=-1)
+    assert (np.isnan(out).any() or np.isinf(out).any()) == False
+    return out
+
+def normalize_obs_diff(obs,scaling=1):
     """
     Inputs:
         obs:[asset_num,window_length,feature_num] obs must bigger than zero
@@ -149,7 +169,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Provide arguments for training different DDPG models')
 
-    parser.add_argument('--debug', '-d', help='print debug statement', default=False)
+    parser.add_argument('--detrend','-d',help='whether detrend',type=str2bool,default=False)
     parser.add_argument('--window_length', '-w', help='observation window length',default=50, type=int,required = True)
     parser.add_argument('--episode','-e', help='number of episodes during training', type=int, default=20, required = True)
     parser.add_argument('--steps','-s',help='number of steps in one episode',type=int, required=True)
@@ -162,7 +182,7 @@ if __name__ == '__main__':
     parser.add_argument('--region','-r',type=str,default='us')
     parser.add_argument('--stock_env','-v',help='version of stock trading environment',type=int, default=3)
     parser.add_argument('--num_mixture',type=int,default=None)
-    parser.add_argument('--batch_size','-b',type=int,default=64)
+    parser.add_argument('--beta','-b',type=float,default=0.0)
 
     args = parser.parse_args()
 
@@ -183,9 +203,8 @@ if __name__ == '__main__':
 
 
     eps=1e-8
-    use_batch_norm = args.batchnorm
 
-    use_obs_normalizer = True
+    detrend = False
 
     model_zoo = ['ddpg', 'td3','d3pg','sac','qrsac']
 
@@ -196,13 +215,11 @@ if __name__ == '__main__':
 
     this_model = model_zoo[args.model]
     stock_env = stock_env_zoo[args.stock_env]
-    #  4: EIIE
+    #  4: EIIE    json configure file
     #  5: ResNet
     #
-    if use_batch_norm:
-        config_path = 'configs/{}_batchnorm.json'.format(this_model)
-    else:
-        config_path = 'configs/{}_default_highassets_6.json'.format(this_model)
+
+    config_path = 'configs/{}_default_highassets_3.json'.format(this_model)
 
     # read data
     if args.highfreq:
@@ -259,6 +276,8 @@ if __name__ == '__main__':
     actor_layers = config['actor_layers']
     critic_layers = config['critic_layers']
 
+    beta = args.beta
+
 
     history_stock_price_training = history_stock_price[:asset_number,0:train_step,:feature_number]
     history_stock_price_validating = history_stock_price[:asset_number,train_step:valid_step,:feature_number]
@@ -276,6 +295,7 @@ if __name__ == '__main__':
                                 steps=max_step,
                                 step_size=max_step_size,
                                 feature_num = feature_number,
+                                beta = beta,
                                 name = stock_env)
 
 
@@ -287,6 +307,7 @@ if __name__ == '__main__':
                                 step_size=max_step_val_size,
                                 feature_num = feature_number,
                                 valid_env=True,
+                                beta = 0.0,
                                 name = stock_env)
 
     actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(asset_number+1),sigma=1/(asset_number+1), theta=0.3)
@@ -297,9 +318,9 @@ if __name__ == '__main__':
                                model = this_model,
                                episode = episodes,
                                window_size = window_size,
+                               beta = beta,
                                n_step = n_step,
-                               use_batch_norm = use_batch_norm,
-                               use_obs_normalizer = use_obs_normalizer,
+                               detrend = detrend,
                                region = args.region,
                                num_mixture=num_mixture)
 
@@ -308,9 +329,9 @@ if __name__ == '__main__':
                                episode = episodes,
                                region = args.region,
                                window_size = window_size,
+                               beta = beta,
                                n_step = n_step,
-                               use_batch_norm = use_batch_norm,
-                               use_obs_normalizer = use_obs_normalizer,
+                               detrend = detrend,
                                best=True,
                                num_mixture=num_mixture)
 
@@ -319,22 +340,25 @@ if __name__ == '__main__':
                             episode = episodes,
                             region = args.region,
                             window_size = window_size,
+                            beta = beta,
                             n_step = n_step,
-                            use_batch_norm = use_batch_norm,
-                            use_obs_normalizer = use_obs_normalizer,
+                            detrend = detrend,
                             num_mixture=num_mixture)
 
     variable_scope = get_variable_scope(window_size,
-                                        use_batch_norm = use_batch_norm,
-                                        use_obs_normalizer = use_obs_normalizer)
+                                        asset_num = asset_number + 1,
+                                        num_mixture = num_mixture,
+                                        beta = beta,
+                                        detrend = detrend)
 
 
-    if use_obs_normalizer:
-        # obs_normalizer = normalize_obs_diff_2
-        obs_normalizer = normalize_obs_logdiff
+    if detrend:
+        obs_normalizer = detrend_2
         window_size = window_size - 1
+        # obs_normalizer = normalize_obs_logdiff
+        # window_size = window_size - 1
     else:
-        obs_normalizer = None
+        obs_normalizer = normalize_obs_diff_2
 
     tf_config = tf.ConfigProto()
     tf_config.gpu_options.allow_growth = True
@@ -373,6 +397,7 @@ if __name__ == '__main__':
                                               window_size = window_size,
                                               learning_rate = actor_learning_rate,
                                               action_bound=1,
+                                              num_vars = 0,
                                               layers = actor_layers,
                                               tau=tau, batch_size=batch_size)
 
@@ -481,5 +506,12 @@ if __name__ == '__main__':
                                              config = config)
         else:
             raise("Model not Implemented Error")
-        model.initialize(load_weights=args.load_weights)
-        model.train()
+        for rep in range(1):
+            model.initialize(load_weights=args.load_weights)
+            model.train()
+        if not os.path.exists('./reward_results/'):
+            os.makedirs('./reward_results/', exist_ok=True)
+        reward_df_save_path = './reward_results/%s_%s_reward_%.4f_best.csv'%(this_model,variable_scope,model.best_val_reward)
+        reward_df = pd.DataFrame(model.reward_summary_dict).to_csv(reward_df_save_path,
+                                                                    index=False)
+        print("Successfully save rewards to %s, with best validation reward %.4f"%(reward_df_save_path,model.best_val_reward))
