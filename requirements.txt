@@ -1,0 +1,8 @@
+numpy==1.19.2
+h5py==2.10.0
+tensorflow-gpu==1.14.0
+pandas==1.1.5
+gym==0.17.2
+numba==0.53.1
+matplotlib==3.3.4
+icecream==2.1.1
