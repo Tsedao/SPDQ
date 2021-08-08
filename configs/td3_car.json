@@ -1,0 +1,30 @@
+{
+  "training":{
+    "episode": 200,
+    "max_step": 10000,
+    "max_step_size":1,
+    "max_step_val":5000,
+    "max_step_val_size":1,
+    "n_step":1,
+    "buffer_size": 50000,
+    "buffer_size_val":2000,
+    "num_mixtrue":5,
+    "batch_size": 64,
+    "policy_delay":1,
+    "device": "cpu",
+    "tau": 0.001,
+    "gamma": 0.99,
+    "actor_learning_rate": 0.001,
+    "actor_lr_decay": 0.001,
+    "critic_learning_rate": 0.001,
+    "critic_lr_decay":0.001,
+    "seed": 1337,
+    "time_discount":0.9
+  },
+
+  "input":{
+    "feature_number": 9,
+    "window_size": 20,
+    "asset_number": 22
+  }
+}

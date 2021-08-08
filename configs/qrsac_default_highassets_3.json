@@ -29,8 +29,7 @@
     {"type": "Iutput_WithW", "neuron_number":128, "activation_function": "relu", "regularizer": "l2"},
     {"type": "DenseLayer", "neuron_number":64, "activation_function": "relu", "regularizer": "l2"},
     {"type": "DenseLayer", "neuron_number":32, "activation_function": "relu", "regularizer": "l2"},
-    {"type": "DenseLayer", "neuron_number":16, "activation_function": "relu", "regularizer": "l2"},
-    {"type": "DenseLayer", "neuron_number":1,  "activation_function":"","regularizer": "l2"}
+    {"type": "DenseLayer", "neuron_number":32,  "activation_function":"relu","regularizer": "l2"}
   ],
 
   "training":{
@@ -44,13 +43,14 @@
     "batch_size": 64,
     "policy_delay":1,
     "num_mixture":2,
+    "num_quart":16,
     "device": "cpu",
     "tau": 0.05,
     "gamma": 0.99,
-    "actor_learning_rate": 0.0001,
-    "actor_lr_decay": 0.0001,
-    "critic_learning_rate": 0.00001,
-    "critic_lr_decay":0.00001,
+    "actor_learning_rate": 0.00001,
+    "actor_lr_decay": 0.000001,
+    "critic_learning_rate": 0.000001,
+    "critic_lr_decay":0.000001,
     "seed": 1337,
     "time_discount":0.9
   },

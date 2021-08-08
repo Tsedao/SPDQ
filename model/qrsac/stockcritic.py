@@ -66,7 +66,7 @@ class QRCritic(object):
         # Sampling bias (w_i * TD_error_i)
         self.bias = tf.placeholder(self.dtype, [None,1],name='bias')
 
-        # self.out = self.quart_out - self.alpha*self.logprob
+        self.out = self.quart_out - self.alpha*self.logprob
         # self.target_out = self.target_quart_out - self.alpha*self.logprob
 
         # Define loss and optimization Op
@@ -89,13 +89,21 @@ class QRCritic(object):
 
         self.num_trainable_vars = len(self.network_params) + len(self.target_network_params)
 
-        self.action_grads = tf.gradients(self.quart_out, self.action)[0]
-        # self.logprob_grads = tf.gradients(self.out, self.logprob)[0]
+        self.action_grads = tf.gradients(self.out, self.action)[0]
+        self.logprob_grads = tf.gradients(self.out, self.logprob)[0]
 
 
         self.alpha_loss = tf.reduce_mean(-self.alpha*(self.logprob + self.target_entropy))
         self.alpha_gradient = tf.gradients(self.alpha_loss,[self.logalpha])
-        self.optimize_alpha = tf.train.AdamOptimizer(learning_rate=1e-2,name='alpha_adam').apply_gradients(zip(self.alpha_gradient,[self.logalpha]))
+        global_step = tf.Variable(0,trainable=False)
+        increment_global_step = tf.assign(global_step, global_step + 1)
+        self.lr_schedule = tf.train.natural_exp_decay(
+                                                    1e-3,
+                                                    global_step = global_step,
+                                                    decay_steps=config['training']['episode']*config['training']['max_step'],
+                                                    decay_rate=0.9,
+                                                    staircase=True)
+        self.optimize_alpha = tf.train.AdamOptimizer(self.lr_schedule,name='alpha_adam').apply_gradients(zip(self.alpha_gradient,[self.logalpha]))
 
     def create_critic_network(self):
 
@@ -162,10 +170,11 @@ class QRCritic(object):
             self.target_action: action
         })
 
-    def action_gradients(self, inputs, actions):
-        return self.sess.run([self.action_grads], feed_dict={
+    def action_logprob_gradients(self, inputs, actions,logprob):
+        return self.sess.run([self.action_grads,self.logprob_grads], feed_dict={
             self.inputs: inputs,
-            self.action: actions
+            self.action: actions,
+            self.logprob: logprob
         })
 
     def train_alpha(self,logprob):

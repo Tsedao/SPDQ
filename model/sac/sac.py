@@ -286,7 +286,7 @@ class SAC(DDPG):
                     print(sigma[0,...])
                     print('x')
                     print(x[0,...])
-                    grads = self.saccritics.action_gradients(s_batch, a_outs)
+                    grads = self.saccritics.action_logprob_gradients(s_batch, a_outs,l_outs)
                     # print(self.sess.run(self.saccritics.alpha))
                     if j % self.policy_delay == 0:
                         self.actor.train(s_batch, *grads)

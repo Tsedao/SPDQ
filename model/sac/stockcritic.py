@@ -26,15 +26,15 @@ class SACCritics(TD3Critics):
         self.q_out = tf.math.minimum(self.critic1.out,self.critic2.out)
         self.q_target_out = tf.math.minimum(self.critic1.target_out,self.critic2.target_out)
         # self.target_out = self.q_target_out - self.alpha*self.logprob
-        # self.out = self.q_out - self.alpha*self.logprob
+        self.out = self.q_out - self.alpha*self.logprob
 
-        self.action_grads_q1 = tf.gradients(self.q_out, self.critic1.action)
-        self.action_grads_q2 = tf.gradients(self.q_out, self.critic2.action)
+        self.action_grads_q1 = tf.gradients(self.out, self.critic1.action)
+        self.action_grads_q2 = tf.gradients(self.out, self.critic2.action)
         self.action_grads = [tf.math.add(x,y) for x,y in zip(self.action_grads_q1, self.action_grads_q2)]
 
         self.action_grads = tf.clip_by_global_norm(self.action_grads,5)[0][0]
 
-        # self.logprob_grads = tf.clip_by_global_norm(tf.gradients(self.out, self.logprob),5)[0][0]
+        self.logprob_grads = tf.clip_by_global_norm(tf.gradients(self.out, self.logprob),5)[0][0]
 
         self.TD_error = tf.math.abs(self.target_q_value-self.q_out)
 
@@ -138,13 +138,14 @@ class SACCritics(TD3Critics):
             self.target_q_value: target_q_value
         })
 
-    def action_gradients(self, inputs, action):
+    def action_logprob_gradients(self, inputs, action,logprob):
         inputs = inputs[:, :, -self.critic1.window_size:, :]
         self.critic1.training = False
         self.critic2.training = False
-        return self.sess.run([self.action_grads], feed_dict={
+        return self.sess.run([self.action_grads,self.logprob_grads], feed_dict={
             self.critic1.inputs[0]: inputs,
             self.critic1.inputs[1]: action,
             self.critic2.inputs[0]: inputs,
-            self.critic2.inputs[1]: action
+            self.critic2.inputs[1]: action,
+            self.logprob:logprob
         })

@@ -2,8 +2,7 @@
   "actor_layers":
   [
     {"type": "TemporalConvNets", "kernel_size": 3, "filters": 10, "dilation_rate":1, "dropout_rate":0.3},
-    {"type": "MultiHeadAttention", "mha_layer_num": 3, "heads_num": 3, "dropout_rate":0.3},
-    {"type": "TCN_MHA_OutW"}
+    {"type": "MultiHeadAttention", "mha_layer_num": 3, "heads_num": 3, "dropout_rate":0.3}
   ],
 
   "critic_layers":
@@ -15,25 +14,25 @@
   ],
 
   "training":{
-    "episode": 10,
-    "max_step": 500,
+    "episode": 500,
+    "max_step": 800,
     "max_step_size":1,
     "max_step_val":300,
     "max_step_val_size":1,
     "buffer_size": 10000,
     "buffer_size_val":2000,
-    "num_mixtrue":5,
+    "num_mixtrue":1,
     "batch_size": 32,
-    "policy_delay":2,
-    "num_quart":16,
-    "n_step":10,
+    "policy_delay":1,
+    "num_quart":8,
+    "n_step":1,
     "device": "cpu",
     "tau": 0.01,
     "gamma": 0.99,
-    "actor_learning_rate": 0.0005,
-    "actor_lr_decay": 0.0001,
-    "critic_learning_rate": 0.000001,
-    "critic_lr_decay":0.000001,
+    "actor_learning_rate": 0.0001,
+    "actor_lr_decay": 0.00001,
+    "critic_learning_rate": 0.001,
+    "critic_lr_decay":0.0001,
     "seed": 1337,
     "time_discount":0.9
   },

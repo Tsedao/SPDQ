@@ -208,6 +208,7 @@ class QRSAC(DDPG):
             # action, logprob = self.actor.predict(np.expand_dims(previous_observation, axis=0))
             print('action',action)
             print('logprob',logprob)
+            # print('eps',eps)
             print('mixture_weights')
             print(mw)
             print('prob')
@@ -246,6 +247,7 @@ class QRSAC(DDPG):
         # target_q_list = [target_q_single_1,target_q_single_2]
         # min_q_ix = np.argmin(target_q_list)
         alpha = self.sess.run(self.critic.alpha)
+        print('alpha',alpha)
         if done:
             y = np.ones(shape=(1,self.critic.num_quart))
         else:
@@ -313,7 +315,7 @@ class QRSAC(DDPG):
             # print(sigma[0,...])
             # print('x')
             # print(x[0,...])
-            grads = self.critic.action_gradients(s_batch, a_outs)
+            grads = self.critic.action_logprob_gradients(s_batch, a_outs,l_outs)
             # print(self.sess.run(self.saccritics.alpha))
             if step_counter % self.policy_delay == 0:
                 self.actor.train(s_batch, *grads)
