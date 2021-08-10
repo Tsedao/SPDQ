@@ -44,6 +44,7 @@ def get_path(mode,
              window_size,
              region,
              beta =0,
+             tau = 0.01,
              n_step=1,
              detrend = False,
              best=False,num_mixture=None):
@@ -61,26 +62,28 @@ def get_path(mode,
 
 
 
-    return '{}/{}/window_{}_detrend_{}_eps_{}_mix_{}_step_{}_beta_{}_{}_checkpoint.ckpt'.format(mode,
+    return '{}/{}/window_{}_detrend_{}_eps_{}_mix_{}_step_{}_beta_{}_tau_{}_{}_checkpoint.ckpt'.format(mode,
                                                             model,
                                                             window_size,
                                                             detrend,
                                                             episode,
                                                             str(num_mixture),
                                                             beta,
+                                                            tau,
                                                             n_step,
                                                             region)
 
-def get_variable_scope(window_size, asset_num=23, num_mixture=None, beta=0,detrend = False):
+def get_variable_scope(window_size, asset_num=23, num_mixture=None, beta=0,tau=0.01,detrend = False):
     if detrend:
         detrend_str = 'detrend'
     else:
         detrend_str = 'no_detrend'
 
-    return 'window_{}_action_dim_{}_m_{}_b_{}_{}'.format(window_size,
+    return 'window_{}_action_dim_{}_m_{}_b_{}_t_{}_{}'.format(window_size,
                                                         asset_num,
                                                         num_mixture,
                                                         beta,
+                                                        tau,
                                                         detrend_str)
 
 def obs_normalizer(observation):
@@ -183,6 +186,7 @@ if __name__ == '__main__':
     parser.add_argument('--stock_env','-v',help='version of stock trading environment',type=int, default=3)
     parser.add_argument('--num_mixture',type=int,default=None)
     parser.add_argument('--beta','-b',type=float,default=0.0)
+    parser.add_argument('--tau','-t',type=float,default=0.01)
 
     args = parser.parse_args()
 
@@ -277,6 +281,7 @@ if __name__ == '__main__':
     critic_layers = config['critic_layers']
 
     beta = args.beta
+    tau_softmax = args.tau
 
 
     history_stock_price_training = history_stock_price[:asset_number,0:train_step,:feature_number]
@@ -319,6 +324,7 @@ if __name__ == '__main__':
                                episode = episodes,
                                window_size = window_size,
                                beta = beta,
+                               tau = tau_softmax,
                                n_step = n_step,
                                detrend = detrend,
                                region = args.region,
@@ -330,6 +336,7 @@ if __name__ == '__main__':
                                region = args.region,
                                window_size = window_size,
                                beta = beta,
+                               tau = tau_softmax,
                                n_step = n_step,
                                detrend = detrend,
                                best=True,
@@ -341,6 +348,7 @@ if __name__ == '__main__':
                             region = args.region,
                             window_size = window_size,
                             beta = beta,
+                            tau = tau_softmax,
                             n_step = n_step,
                             detrend = detrend,
                             num_mixture=num_mixture)
@@ -349,6 +357,7 @@ if __name__ == '__main__':
                                         asset_num = asset_number + 1,
                                         num_mixture = num_mixture,
                                         beta = beta,
+                                        tau = tau_softmax,
                                         detrend = detrend)
 
 
@@ -388,6 +397,7 @@ if __name__ == '__main__':
                                               learning_rate = actor_learning_rate,
                                               action_bound=1,
                                               layers = actor_layers,
+                                              tau_softmax = tau_softmax,
                                               tau=tau, batch_size=batch_size,dtype=dtype)
             else:
                 from model.ddpg.stockactor import DDPGActor
@@ -506,7 +516,7 @@ if __name__ == '__main__':
                                              config = config)
         else:
             raise("Model not Implemented Error")
-        for rep in range(1):
+        for rep in range(15):
             model.initialize(load_weights=args.load_weights)
             model.train()
         if not os.path.exists('./reward_results/'):

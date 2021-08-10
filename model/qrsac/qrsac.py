@@ -157,7 +157,7 @@ class QRSAC(DDPG):
             ep_alpha_loss = 0
             # keeps sampling until done
             for j in range(self.training_max_step):
-                start_obs, start_a,start_l, rewards,done, obs, TD_errors, ep_reward, ep_max_q, ep_loss,ep_alpha_loss = self.train_one_step(
+                start_obs, start_a,start_l, rewards,obs, done, TD_errors, ep_reward, ep_max_q, ep_loss,ep_alpha_loss = self.train_one_step(
                                                                         previous_observation,
                                                                         ep_reward,
                                                                         ep_max_q,
