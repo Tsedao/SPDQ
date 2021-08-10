@@ -147,7 +147,7 @@ class D3PG(DDPG):
                                                                         j)
 
                 end_time = time.time()
-                self.buffer.store((start_obs, start_action, rewards, done, obs),TD_errors)
+                self.buffer.store((start, start_action, rewards, done, obs),TD_errors)
                 ic(done)
                 print("elapsed time {:.4f}s".format(end_time-start_time))
                 ep_reward += rewards
@@ -204,7 +204,7 @@ class D3PG(DDPG):
 
 
         TD_errors = self.critic.compute_TDerror(np.expand_dims(previous_observation,axis=0),
-                                                   np.expand_dims(action, axis=0),
+                                                   np.expand_dims(action_take, axis=0),
                                                    y)[0]
         # add to buffer
         # self.buffer.add(previous_observation, action, reward, done, observation)

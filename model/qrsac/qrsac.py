@@ -20,7 +20,7 @@ class QRSAC(DDPG):
                      model_save_path, best_model_save_path, summary_path)
 
         self.policy_delay = policy_delay
-
+        # self.buffer = rank_based.Experience(self.config['training']['buffer_size'])
 
     def build_summaries(self,scope):
         with tf.variable_scope(scope):
@@ -137,7 +137,7 @@ class QRSAC(DDPG):
         np.random.seed(self.config['training']['seed'])
 
         #self.buffer = proportional.Experience(self.config['training']['buffer_size'])
-        self.buffer = rank_based.Experience(self.config['training']['buffer_size'])
+        # self.buffer = rank_based.Experience(self.config['training']['buffer_size'])
 
         # main training loop
         for i in range(self.num_episode):
@@ -273,6 +273,7 @@ class QRSAC(DDPG):
             TD_errors_list = []
             alpha = self.sess.run(self.critic.alpha)
             for k in range(self.batch_size):
+
                 if t_batch[k]:
                     y_tmp = r_batch[k]*np.ones(shape=(self.critic.num_quart))
                 else:
@@ -340,7 +341,7 @@ class QRSAC(DDPG):
             [self.writer.add_summary(summary, self.training_max_step*epi_counter+step_counter) for summary in summaries]
             self.writer.flush()
 
-        return start_observation, start_action, start_logprob, rewards, done, observation, TD_errors, ep_reward, ep_max_q, ep_loss,ep_alpha_loss
+        return start_observation, start_action, start_logprob, rewards, observation, done, TD_errors, ep_reward, ep_max_q, ep_loss,ep_alpha_loss
 
     def predict_single(self, observation):
         """ Predict the action of a single observation

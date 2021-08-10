@@ -99,9 +99,9 @@ class DataGenerator(object):
             self.idx = date_to_index(self.start_date,self.timestamp_all) - self.start_idx
             assert self.idx >= self.window_length and self.idx <= self._data.shape[1] - self.steps, \
                 'Invalid start date, must be window_length day after start date and simulation steps day before end date'
-        self.__start_date = index_to_date(self.idx, self.timestamp_all)
-        self.__end_date = index_to_date(self.idx+self.steps, self.timestamp_all)
-        print('Start date: %s, End date: %s' %(self.__start_date,self.__end_date))
+        self._start_date = index_to_date(self.idx, self.timestamp_all)
+        self._end_date = index_to_date(self.idx+self.steps, self.timestamp_all)
+        print('Start date: %s, End date: %s' %(self._start_date,self._end_date))
         data = self._data[:, self.idx - self.window_length:self.idx + self.steps + 1, :]
         # apply augmentation?
         self.data = data
@@ -118,13 +118,13 @@ class PortfolioSim(object):
     Based of [Jiang 2017](https://arxiv.org/abs/1706.10059)
     """
 
-    def __init__(self, asset_names=list(), steps=730, trading_cost=0.0025, time_cost=0.0, belta=0.0):
+    def __init__(self, asset_names=list(), steps=730, trading_cost=0.0025, time_cost=0.0, beta=0.0):
         self.asset_names = asset_names
         self.cost = trading_cost
         self.time_cost = time_cost
         self.steps = steps
 
-        self.belta = belta
+        self.beta = beta
         self.onestep_rewards = [0]
 
     def _step(self, w1_o, v1, v2):
@@ -157,7 +157,7 @@ class PortfolioSim(object):
 
         var = np.var(self.onestep_rewards)
 
-        r = np.log((1-mu1)*np.dot(w1_o,v1)) - self.belta * (var) #
+        r = np.log((1-mu1)*np.dot(w1_o,v1)) - self.beta * (var) #
 
         self.onestep_rewards.append(r)
 
@@ -219,6 +219,7 @@ class PortfolioEnv(gym.Env):
                  sample_start_date=None,
                  feature_num=4,
                  valid_env = False,
+                 beta = 0.0,
                  name = 'StockTradingEnv_v1'
                  ):
         """
@@ -247,7 +248,8 @@ class PortfolioEnv(gym.Env):
             asset_names=abbreviation,
             trading_cost=trading_cost,
             time_cost=time_cost,
-            steps=steps)
+            steps=steps,
+            beta = beta)
         self.name = name
         # openai gym attributes
         # action will be the portfolio weights from 0 to 1 for each asset
@@ -272,7 +274,7 @@ class PortfolioEnv(gym.Env):
             action.shape,
             (len(self.sim.asset_names) + 1,)
         )
-        ic(action)
+        # ic(action)
 
         # Env_v1 is based on zhengyao jiang
         if self.name == "StockTradingEnv_v1":
@@ -301,6 +303,7 @@ class PortfolioEnv(gym.Env):
 
 
             if self.name == "StockTradingEnv_v3":
+                # need softmax
                 action = np.clip(action, 0, 1)
                 assert ((action>= 0) * (action <= 1)).all(), 'all action values should be between 0 and 1. Not %s' % action
                 action = np.exp(action) / np.sum(np.exp(action))                  # normalise the action because of exploration using probability
@@ -308,44 +311,46 @@ class PortfolioEnv(gym.Env):
                 sell_prop = np.exp(50*(1-action[sell_idx])) / np.sum(np.exp(50*(1-action[sell_idx])))
                 buy_prop = np.exp(100*(action[buy_idx])) / np.sum(np.exp(100*(action[buy_idx])))
             else:
+                # don't need softmax
                 sell_idx, buy_idx = np.where(action<0)[0], np.where(action>=0)[0]
-                buy_prop = np.exp(10*(action[buy_idx]-1)) / np.sum(np.exp(10*(action[buy_idx]-1)))  # minus one to aviod converge in tanh
-                sell_prop = np.exp(10*(-action[sell_idx]-1)) / np.sum(np.exp(10*(-action[sell_idx]-1)))
+                buy_prop = (action[buy_idx]) / np.sum((action[buy_idx]))
+                sell_prop = (-action[sell_idx]) / np.sum((-action[sell_idx]))
 
             selled_shares_total = 0
             weights = self.sim.w0_c
 
             if len(sell_idx) == 0 or len(buy_idx) == 0:
-                print('******Holding*******')
+                # print('******Holding*******')
                 pass
             else:
-                print('*******Selling******')
+                # print('*******Selling******')
                 for i,prop in zip(sell_idx,sell_prop):
                     selled_shares = prop*weights[i]
                     weights[i] -= selled_shares                                      # reduce the shares based on holded position
                     selled_shares_total += selled_shares
-                    print(prop,i)
+                    # print(prop,i)
 
-                print('******Buying********')
+                # print('******Buying********')
                 bought_shares_total = 0
                 for i,prop in zip(buy_idx,buy_prop):                                 # increase the share based on the number of reduced share
                     bought_shares = min(prop*selled_shares_total,1-weights[i])
                     weights[i] += bought_shares
                     bought_shares_total = bought_shares_total + bought_shares
-                    print(prop,i)
+                    # print(prop,i)
         else:
             raise('%s Not Implemented'%self.name)
 
-        ic(weights)
+        if self.src.valid_env:
+            ic(weights)
+        weights = np.float32(weights)
         np.testing.assert_almost_equal(
             np.sum(weights), 1.0, 3, err_msg='weights should sum to 1. action="%s"' % weights)
-        #ic(weights)
         observation, done1, ground_truth_obs = self.src._step()
 
         # concatenate observation with ones
         cash_observation = np.ones((1, self.window_length, observation.shape[2]))
-        ic(observation.shape)
-        ic(cash_observation.shape)
+        # ic(observation.shape)
+        # ic(cash_observation.shape)
         observation = np.concatenate((cash_observation, observation), axis=0)
 
         cash_ground_truth = np.ones((1, 1, ground_truth_obs.shape[2]))
@@ -360,7 +365,8 @@ class PortfolioEnv(gym.Env):
 
         pre_w = self.sim.w0_c
         self.weights[:,:-1] = self.weights[:,1:]
-        self.weights[:,-1] = pre_w                                               # add previous weights to the observation space
+        self.weights[:,-1] = pre_w                                              # add previous weights to the observation space
+        self.weights = np.float32(self.weights)
         onestep_r, info, done2 = self.sim._step(weights, y1, y2)
         # calculate return for buy and hold a bit of each asset
         info['market_value'] = np.cumprod([inf["return"] for inf in self.infos + [info]])[-1]

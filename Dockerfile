@@ -14,15 +14,16 @@ RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh \
 RUN conda create -y -n rl python=3.7
 
 
-COPY ./model/ usr/src/model/
-COPY ./configs/ usr/src/configs/
-COPY ./environment/ usr/src/environment/
-COPY ./utils/ usr/src/utils/
-COPY ./requirements.txt usr/src/
-COPY ./train.py usr/src/
+# COPY ./model/ home/model/
+# COPY ./configs/ home/configs/
+# COPY ./environment/ home/environment/
+# COPY ./utils/ home/utils/
+# COPY ./requirements.txt home/
+# COPY ./train.py home/
+COPY . home/
 
-RUN /bin/bash -c "cd usr/src/ \
+RUN /bin/bash -c "cd home/ \
     && source activate rl \
     && pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt"
 
-WORKDIR /usr/src/
+WORKDIR home/
