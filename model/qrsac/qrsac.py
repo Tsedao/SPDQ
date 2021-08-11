@@ -3,6 +3,7 @@ import traceback
 import json
 import numpy as np
 import tensorflow as tf
+import time
 
 from ..core.replay.replay_buffer import ReplayBuffer
 from ..core.replay import proportional, rank_based
@@ -157,6 +158,7 @@ class QRSAC(DDPG):
             ep_alpha_loss = 0
             # keeps sampling until done
             for j in range(self.training_max_step):
+                curr_time = time.time()
                 start_obs, start_a,start_l, rewards,obs, done, TD_errors, ep_reward, ep_max_q, ep_loss,ep_alpha_loss = self.train_one_step(
                                                                         previous_observation,
                                                                         ep_reward,
@@ -164,6 +166,8 @@ class QRSAC(DDPG):
                                                                         ep_loss,
                                                                         ep_alpha_loss,
                                                                         i,j)
+                elapsed_time = time.time() - curr_time
+                print('elapsed_time: %.5f s'%elapsed_time)
                 ep_reward += rewards
                 self.buffer.store((start_obs, start_a,start_l, rewards, done, obs),TD_errors)
                 previous_observation = obs
