@@ -7,7 +7,7 @@ from ..core import nn
 class SACActor(object):
 
     def __init__(self, sess, config, feature_number, action_dim, window_size,num_mixture,learning_rate=0.01,
-                      action_bound=None,layers=None,dtype=tf.float64, tau=0.001,tau_softmax=0.01,batch_size=128):
+                      action_bound=None,layers=None,num_vars=0, tau=0.001,tau_softmax=0.01,batch_size=128,dtype=tf.float64):
 
         self.sess = sess
         self.feature_number = feature_number
@@ -26,14 +26,14 @@ class SACActor(object):
         self.inputs, self.scaled_out, self.logprob, self.test_prob, self.test_det, \
             self.test_mu, self.test_sigma, self.test_eps,self.test_x, self.test_mw = self.create_actor_network()
 
-        self.network_params = tf.trainable_variables()
+        self.network_params = tf.trainable_variables()[num_vars:]
 
         # Target Network
         self.target_inputs, self.target_scaled_out, self.target_logprob, self.test_target_prob, self.test_target_det, \
           self.test_target_mu, self.test_target_sigma, self.test_target_eps, self.test_target_x,self.test_target_mw = self.create_actor_network()
 
         self.target_network_params = tf.trainable_variables()[
-                                     len(self.network_params):]
+                                     (len(self.network_params))+num_vars:]
 
         # Op for periodically updating target network with online network
         # weights
@@ -73,7 +73,6 @@ class SACActor(object):
 
         self.optimize = tf.train.AdamOptimizer(self.lr_schedule). \
             apply_gradients(zip([-1*g for g in self.actor_gradients], self.network_params),global_step=global_step)
-
     def create_actor_network(self):
 
         num_mixture = self.num_mixture
@@ -84,8 +83,8 @@ class SACActor(object):
         dtype = self.dtype
 
 
-        delta_tf = tf.constant(delta,dtype=dtype,name='delta')
-        self.delta_tf = delta_tf
+        EPS_TF = tf.constant(delta,dtype=dtype,name='delta')
+        self.EPS_TF = EPS_TF
         # feature_input = tf.placeholder(dtype, shape=[None, action_dim,time_stamp,feature_num])
         # out = tf.reshape(feature_input,shape=[-1,action_dim*time_stamp*feature_num])
         # out = tf.keras.layers.Dense(units=128,activation='relu')(out)
@@ -96,8 +95,8 @@ class SACActor(object):
         out = self.actor_net.output
         # with tf.name_scope('tau'):
         #     log_tau = tf.keras.layers.Dense(1)(out)
-        #     self.tau_tf = tf.math.exp(log_tau)
-        self.tau_tf = tf.constant(self.tau_softmax,dtype=self.dtype)
+        #     self.tau_softmax_tf = tf.math.exp(log_tau)
+        self.tau_softmax_tf = tf.constant(self.tau_softmax,dtype=self.dtype)
         with tf.name_scope('std'):
             logvar = tf.keras.layers.Dense(32,activation='relu')(out)
             logvar = tf.keras.layers.Dense(units=action_dim*num_mixture,activation=None)(logvar)
@@ -117,9 +116,9 @@ class SACActor(object):
         # with tf.name_scope('tau'):
         #     log_tau = tf.keras.layers.Dense(32,activation='relu')(out)
         #     log_tau = tf.keras.layers.Dense(1)(log_tau)
-        #     self.tau_tf = tf.math.exp(log_tau)
+        #     self.tau_softmax_tf = tf.math.exp(log_tau)
         # log_tau_tf = tf.Variable(initial_value=0,trainable=True,dtype=dtype,name='tau')
-        # self.tau_tf = tf.math.exp(log_tau_tf)
+        # self.tau_softmax_tf = tf.math.exp(log_tau_tf)
         # reparameterize
         with tf.name_scope('x'):
             eps = tf.random.normal(shape = [tf.shape(mu)[0],1],dtype=dtype)
@@ -130,16 +129,16 @@ class SACActor(object):
 
         #    x = dist_gmm.sample()
         with tf.name_scope('z'):
-            z = tf.math.exp(x / self.tau_tf) / (tf.reduce_sum(tf.math.exp(x / self.tau_tf),axis=1,keepdims=True) + delta_tf)
+            z = tf.math.exp(x / self.tau_softmax_tf) / (tf.reduce_sum(tf.math.exp(x / self.tau_softmax_tf),axis=1,keepdims=True) + EPS_TF)
             # z = tf.keras.activations.sigmoid(x)
             # z1 = z / tf.math.reduce_sum(z,axis=-1, keepdims=True)
             print(z.shape)
 
         with tf.name_scope('det'):
-            logabsdet = tf.math.reduce_sum(tf.math.log(z),axis=1,keepdims=True)-action_dim*tf.math.log(self.tau_tf)
+            logabsdet = tf.math.reduce_sum(tf.math.log(z),axis=1,keepdims=True)-action_dim*tf.math.log(self.tau_softmax_tf)
 
-            # det = tf.math.reduce_sum(tf.math.log(z*(1-z)+self.delta_tf),axis=-1,keepdims=True)
-            #det = delta_tf
+            # det = tf.math.reduce_sum(tf.math.log(z*(1-z)+self.EPS_TF),axis=-1,keepdims=True)
+            #det = EPS_TF
             print(logabsdet.shape)
 
         with tf.name_scope('log-likehood'):
@@ -225,16 +224,16 @@ class SACActor(object):
         if size == mu.shape.as_list()[-1] and size == sigma.shape.as_list()[-1]:
             det = tf.math.reduce_prod(sigma,axis=1,keepdims=True)
             size = x.shape.as_list()[-1]
-            norm_const = 1.0/ (( tf.cast(tf.math.pow((2.0*np.pi),(size)/2),dtype=self.dtype) * tf.math.pow(det,1.0/2) )+self.delta_tf)
+            norm_const = 1.0/ (( tf.cast(tf.math.pow((2.0*np.pi),(size)/2),dtype=self.dtype) * tf.math.pow(det,1.0/2) )+self.EPS_TF)
     #        norm_const = tf.expand_dims(norm_const,axis=1)
             x_mu = x-mu
 
-            inv = 1 / (sigma+self.delta_tf)
+            inv = 1 / (sigma+self.EPS_TF)
     #        exponential_term = tf.math.exp( -0.5 * (tf.matmul(tf.matmul(x_mu, inv),tf.transpose(x_mu,perm=[0,2,1]))))
             exponential_term = tf.math.exp( -0.5 * tf.reduce_sum(x_mu*inv*x_mu,axis=1,keepdims=True))
 
     #        exponential_term = tf.squeeze(exponential_term,axis=-1)
-            return tf.multiply(norm_const,exponential_term) + self.delta_tf
+            return tf.multiply(norm_const,exponential_term) + self.EPS_TF
             # return tf.multiply(norm_const,exponential_term)
         else:
             raise NameError("The dimensions of the input don't match")

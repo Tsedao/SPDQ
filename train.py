@@ -68,9 +68,9 @@ def get_path(mode,
                                                             detrend,
                                                             episode,
                                                             str(num_mixture),
+                                                            n_step,
                                                             beta,
                                                             tau,
-                                                            n_step,
                                                             region)
 
 def get_variable_scope(window_size, asset_num=23, num_mixture=None, beta=0,tau=0.01,detrend = False):
