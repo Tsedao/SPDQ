@@ -112,7 +112,7 @@ class SACActor(object):
             # mu = mu / tf.reduce_sum(mu, axis=-1,keepdims=True)
         with tf.name_scope('mixture_weights'):
             mixture_weights = tf.keras.layers.Dense(units=num_mixture,activation='sigmoid')(out)
-            mixture_weights = mixture_weights / tf.reduce_sum(mixture_weights, axis=-1,keepdims=True)
+            mixture_weights = mixture_weights / (tf.reduce_sum(mixture_weights, axis=-1,keepdims=True)+EPS_TF)
         # with tf.name_scope('tau'):
         #     log_tau = tf.keras.layers.Dense(32,activation='relu')(out)
         #     log_tau = tf.keras.layers.Dense(1)(log_tau)

@@ -516,12 +516,12 @@ if __name__ == '__main__':
                                              config = config)
         else:
             raise("Model not Implemented Error")
-        for rep in range(15):
+        for rep in range(10):
             model.initialize(load_weights=args.load_weights)
             model.train()
-        if not os.path.exists('./reward_results/'):
-            os.makedirs('./reward_results/', exist_ok=True)
-        reward_df_save_path = './reward_results/%s_%s_reward_%.4f_best.csv'%(this_model,variable_scope,model.best_val_reward)
-        reward_df = pd.DataFrame(model.reward_summary_dict).to_csv(reward_df_save_path,
-                                                                    index=False)
+            if not os.path.exists('./reward_results/replica_%d'%(rep)):
+                os.makedirs('./reward_results/replica_%d'%(rep), exist_ok=True)
+            reward_df_save_path = './reward_results/replica_%d/%s_%s_reward_%.4f_best.csv'%(rep,this_model,variable_scope,model.best_val_reward)
+            reward_df = pd.DataFrame(model.reward_summary_dict).to_csv(reward_df_save_path,
+                                                                        index=False)
         print("Successfully save rewards to %s, with best validation reward %.4f"%(reward_df_save_path,model.best_val_reward))
