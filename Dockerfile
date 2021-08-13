@@ -1,5 +1,5 @@
 # FROM ubuntu:18.04
-FROM nvidia/cuda:10.2-cudnn7-devel-ubuntu18.04
+FROM nvidia/cuda:10.0-cudnn7-devel-ubuntu18.04
 ENV PATH="/root/miniconda3/bin:${PATH}"
 ARG PATH="/root/miniconda3/bin:${PATH}"
 
@@ -24,6 +24,7 @@ COPY . home/
 
 RUN /bin/bash -c "cd home/ \
     && source activate rl \
+    && conda install cudatoolkit=10.0 \
     && pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt"
 
 WORKDIR home/
