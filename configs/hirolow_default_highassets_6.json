@@ -14,14 +14,14 @@
   ],
 
   "training":{
-    "episode": 500,
+    "episode": 20,
     "max_step": 800,
     "max_step_size":1,
     "max_step_val":300,
     "max_step_val_size":1,
     "buffer_size": 10000,
     "buffer_size_val":2000,
-    "num_mixtrue":1,
+    "num_mixture":1,
     "batch_size": 32,
     "policy_delay":1,
     "num_quart":8,
