@@ -42,7 +42,7 @@ class TD3(DDPG):
 
         return summary_ops, summary_vars
 
-    def validate(self, epi_counter, verbose=True):
+    def validate_verbose(self, epi_counter, verbose=True):
         """
         Do validation on val env
         Args
@@ -154,7 +154,7 @@ class TD3(DDPG):
             ep_loss_1 = 0
             ep_loss_2 = 0
             # keeps sampling until done
-            for j in range(0,self.config['training']['max_step'],self.config['training']['max_step_size']):
+            for j in range(0,self.training_max_step):
                 start_time = time.time()
 
                 rewards = 0
@@ -173,7 +173,7 @@ class TD3(DDPG):
                 ep_reward += rewards
                 previous_observation = obs
 
-                if j == self.config['training']['max_step'] - self.config['training']['max_step_size'] or done:
+                if j == self.training_max_step - 1 or done:
 
 
                     print('Episode: {:d}, Reward: {:.2f}, Qmax: {:.4f}, loss1: {:.8f}, loss2: {:.8f}'.format(
@@ -201,34 +201,31 @@ class TD3(DDPG):
         rewards = 0
         TD_errors = 0
         # n-step TD-learning
-        for n in range(self.config['training']['n_step']):
+        for n in range(self.n_step):
             action = self.actor.predict(np.expand_dims(previous_observation, axis=0)).squeeze(
                 axis=0) + self.actor_noise()
             if n == 0:
                 start_action = action
+                start_obs = previous_observation
 
             # step forward
             observation, reward, done, _ = self.step(self.env, previous_observation,action)
-            # self.env.render()
 
-            # print("action",self.actor.predict_target(np.expand_dims(observation, axis=0))+np.expand_dims(self.actor_noise(),axis=0))
-            target_q_single = self.td3critics.predict_target(np.expand_dims(observation, axis=0),
-                                self.actor.predict_target(np.expand_dims(observation, axis=0)) + np.expand_dims(self.actor_noise(),axis=0))
-            # critic1_weights, critic2_weights,w1,w2, t_out, t_out_2, out, out2 = self.td3critics.inspect_targets_weights(np.expand_dims(observation, axis=0),
-            #                     self.actor.predict_target(np.expand_dims(observation, axis=0)) + np.expand_dims(self.actor_noise(),axis=0))
-            # print("obs",np.expand_dims(observation, axis=0))
-            if done:
-                y = np.expand_dims(np.array([reward]),axis=0)
-                break
-            else:
-                y = reward + self.gamma * target_q_single
-
-            TD_error = self.td3critics.compute_TDerror(np.expand_dims(previous_observation,axis=0),
-                                                   np.expand_dims(action, axis=0),
-                                                   y)[0][0]
             previous_observation = observation
             rewards += np.power(self.gamma,n)*reward
-            TD_errors += TD_error
+
+        target_q_single = self.td3critics.predict_target(np.expand_dims(observation, axis=0),
+                            self.actor.predict_target(np.expand_dims(observation, axis=0)) + np.expand_dims(self.actor_noise(),axis=0))
+
+        if done:
+            y = np.expand_dims(np.array([rewards]),axis=0)
+        else:
+            y = rewards + np.power(self.gamma,self.n_step) * target_q_single
+
+        TD_errors = self.td3critics.compute_TDerror(np.expand_dims(start_obs,axis=0),
+                                               np.expand_dims(start_action, axis=0),
+                                               y)[0][0]
+
 
         if self.buffer.size() >= self.batch_size:
 
@@ -290,7 +287,7 @@ class TD3(DDPG):
                                     self.summary_vars[2] : np.amax(predicted_q_value),
             })
 
-            [self.writer.add_summary(summary, self.config['training']['max_step']*epi_counter+self.config['training']['n_step']*step_counter
+            [self.writer.add_summary(summary, self.training_max_step*epi_counter+self.n_step*step_counter
                             ) for summary in summaries]
             self.writer.flush()
 

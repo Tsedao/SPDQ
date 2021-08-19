@@ -37,7 +37,7 @@ class QRSAC(DDPG):
 
         return summary_ops, summary_vars
 
-    def validate(self, epi_counter, verbose=True):
+    def validate_verbose(self, epi_counter, verbose=True):
         """
         Do validation on val env
         Args
@@ -253,7 +253,7 @@ class QRSAC(DDPG):
         alpha = self.sess.run(self.critic.alpha)
         print('alpha',alpha)
         if done:
-            y = np.ones(shape=(1,self.critic.num_quart))
+            y = np.ones(shape=(1,self.critic.num_quart))*rewards
         else:
             y = rewards + np.power(self.gamma,self.n_step) * (target_q_single - alpha * logp_t)
 

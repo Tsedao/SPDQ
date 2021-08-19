@@ -52,7 +52,7 @@ class DDPG(BaseModel):
         self.batch_size = self.config['training']['batch_size']
         self.n_step = self.config['training'].get('n_step',1)
         self.training_max_step = self.config['training']['max_step']
-        self.training_max_step_size = self.config['training']['max_step_size']
+        self.training_max_step_size = self.config['training'].get('max_step_size',1)
         self.validating_max_step = self.config['training']['max_step_val']
         self.gamma = self.config['training']['gamma']
         #self.buffer = proportional.Experience(self.config['training']['buffer_size'])
@@ -108,7 +108,7 @@ class DDPG(BaseModel):
 
         return best_r
 
-    def validate(self, epi_counter, verbose=True):
+    def validate_verbose(self, epi_counter, verbose=True):
         """
         Do validation on val env
         Args
@@ -124,6 +124,7 @@ class DDPG(BaseModel):
         previous_observation, _ = self.val_env.reset()
         if self.obs_normalizer:
             previous_observation = self.obs_normalizer(previous_observation)
+        val_ep_reward_list = []
 
         for j in range(self.validating_max_step):
             action = self.actor.predict(np.expand_dims(previous_observation, axis=0)).squeeze(
@@ -133,7 +134,7 @@ class DDPG(BaseModel):
             observation, reward, done, _ = self.step(self.val_env,previous_observation,action)
 
             val_ep_reward += reward
-
+            val_ep_reward_list.append(val_ep_reward)
             # Calculate targets
             target_q = self.critic.predict_target(np.expand_dims(observation,axis=0),
                              self.actor.predict_target(np.expand_dims(observation,axis=0)))
@@ -172,9 +173,59 @@ class DDPG(BaseModel):
                 })
                 self.writer.add_summary(reward_summary,epi_counter)
                 self.writer.flush()
+
+                val_ep_reward_avg = np.mean(val_ep_reward_list)
+                val_ep_reward_std = np.std(val_ep_reward_list)
+                self.reward_summary_dict['epi'].append(epi_counter)
+                self.reward_summary_dict['reward_avg'].append(val_ep_reward_avg)
+                self.reward_summary_dict['reward_std'].append(val_ep_reward_std)
+                self.reward_summary_dict['reward_sum'].append(val_ep_reward)
                 self.best_val_reward = self.save_best_model(val_ep_reward,self.best_val_reward)
+
                 break
 
+    def validate(self, epi_counter, verbose=True):
+        """
+        Do validation on val env
+        Args
+            env: val
+            buffer: simple replay buffer
+        """
+
+
+        ep_reward = 0
+        val_ep_reward_list = []
+        previous_observation, _ = self.val_env.reset()
+        if self.obs_normalizer:
+            previous_observation = self.obs_normalizer(previous_observation)
+
+        for j in range(self.validating_max_step):
+
+            action = self.predict_single(previous_observation)
+            print('action:',action)
+            obs, reward, done, _ = self.val_env.step(action)
+            ep_reward += reward
+            val_ep_reward_list.append(ep_reward)
+            previous_observation = obs
+
+            if  j == self.validating_max_step - 1:
+                print("*"*12+'validaing'+"*"*12)
+                print('Episode: {:d}, Reward: {:.2f}'.format(
+                            epi_counter, ep_reward))
+                reward_summary = self.sess.run(self.summary_ops_val_r, feed_dict = {
+                                            self.summary_vars_val_r : ep_reward
+                })
+                self.writer.add_summary(reward_summary,epi_counter)
+                self.writer.flush()
+                val_ep_reward_avg = np.mean(val_ep_reward_list)
+                val_ep_reward_std = np.std(val_ep_reward_list)
+                self.reward_summary_dict['epi'].append(epi_counter)
+                self.reward_summary_dict['reward_avg'].append(val_ep_reward_avg)
+                self.reward_summary_dict['reward_std'].append(val_ep_reward_std)
+                self.reward_summary_dict['reward_sum'].append(ep_reward)
+                self.best_val_reward = self.save_best_model(ep_reward,self.best_val_reward)
+            if done:
+                break
 
     def train(self, save_every_episode=1, verbose=True, debug=False):
         """ Must already call intialize
@@ -245,23 +296,24 @@ class DDPG(BaseModel):
 
             if n == 0:
                 start_action = action
+                start_obs = previous_observation
 
             observation, reward, done, _  = self.step(self.env, previous_observation,action)
-
-            target_q_single = self.critic.predict_target(np.expand_dims(observation, axis=0),
-                             self.actor.predict_target(np.expand_dims(observation, axis=0)))
-
-            if done:
-                y = np.array([[reward]])
-            else:
-                y = reward + self.gamma * target_q_single
-
-            TD_error = self.critic.compute_TDerror(np.expand_dims(previous_observation,axis=0),
-                                                   np.expand_dims(action, axis=0),
-                                                   y)[0][0][0]
             previous_observation = observation
             rewards += np.power(self.gamma,n)*reward
-            TD_errors += TD_error
+
+        target_q_single = self.critic.predict_target(np.expand_dims(observation, axis=0),
+                         self.actor.predict_target(np.expand_dims(observation, axis=0)))
+
+        if done:
+            y = np.array([[rewards]])
+        else:
+            y = rewards + np.power(self.gamma,self.n_step) * target_q_single
+
+        TD_errors = self.critic.compute_TDerror(np.expand_dims(start_obs,axis=0),
+                                               np.expand_dims(start_action, axis=0),
+                                               y)[0][0][0]
+
 
         if self.buffer.size() >= self.batch_size:
             # batch update

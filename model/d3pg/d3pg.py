@@ -38,7 +38,7 @@ class D3PG(DDPG):
 
         return summary_ops, summary_vars
 
-    def validate(self, epi_counter, verbose=True):
+    def validate_verbose(self, epi_counter, verbose=True):
         """
         Do validation on val env
         Args
@@ -147,7 +147,7 @@ class D3PG(DDPG):
                                                                         j)
 
                 end_time = time.time()
-                self.buffer.store((start, start_action, rewards, done, obs),TD_errors)
+                self.buffer.store((previous_observation, start_action, rewards, done, obs),TD_errors)
                 ic(done)
                 print("elapsed time {:.4f}s".format(end_time-start_time))
                 ep_reward += rewards
@@ -190,12 +190,12 @@ class D3PG(DDPG):
                 observation = self.obs_normalizer(observation)
 
 
-            target_q_single = self.critic.predict_target(np.expand_dims(observation, axis=0),
-                                self.actor.predict_target(np.expand_dims(observation, axis=0)) +
-                                np.expand_dims(self.actor_noise(),axis=0))
-
             previous_observation = observation
             rewards += np.power(self.gamma,n)*reward
+
+        target_q_single = self.critic.predict_target(np.expand_dims(observation, axis=0),
+                            self.actor.predict_target(np.expand_dims(observation, axis=0)) +
+                            np.expand_dims(self.actor_noise(),axis=0))
 
         if done:
             y = rewards*np.ones(shape=(1,self.num_quart))
@@ -203,8 +203,8 @@ class D3PG(DDPG):
             y = rewards + np.power(self.gamma,self.n_step) * target_q_single
 
 
-        TD_errors = self.critic.compute_TDerror(np.expand_dims(previous_observation,axis=0),
-                                                   np.expand_dims(action_take, axis=0),
+        TD_errors = self.critic.compute_TDerror(np.expand_dims(start_observation,axis=0),
+                                                   np.expand_dims(start_action, axis=0),
                                                    y)[0]
         # add to buffer
         # self.buffer.add(previous_observation, action, reward, done, observation)

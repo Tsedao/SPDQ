@@ -18,14 +18,14 @@ def sharpe(returns, freq=30, rfr=0):
     return (np.sqrt(freq) * np.mean(returns - rfr + eps)) / np.std(returns - rfr + eps)
 
 
-def max_drawdown(returns):
+def max_drawdown(pf):
     """ Max drawdown. See https://www.investopedia.com/terms/m/maximum-drawdown-mdd.asp """
-    peak = returns.max()
-    trough = returns[returns.argmax():].min()
+    peak = pf.max()
+    trough = pf[pf.argmax():].min()
     return (trough - peak) / (peak + eps)
 
-def ARR(portfolio_value,freq):
-    return ((portfolio_value.iloc[-1] - portfolio_value.iloc[0]) / portfolio_value.iloc[0])*(256/freq)
+def ARR(pf,freq):
+    return ((pf.iloc[-1] - pf.iloc[0]) / pf.iloc[0])*(256/freq)
 
 def AVOL(returns,freq):
     return  np.sqrt(np.mean(returns**2)-(np.mean(returns))**2) * np.sqrt(256/freq)

@@ -41,7 +41,7 @@ class SAC(DDPG):
 
         return summary_ops, summary_vars
 
-    def validate(self, epi_counter, verbose=True):
+    def validate_verbose(self, epi_counter, verbose=True):
         """
         Do validation on val env
         Args
@@ -76,7 +76,8 @@ class SAC(DDPG):
 
 
             # Calculate targets
-            a_t, l_t = self.actor.predict_target(np.expand_dims(observation,axis=0))
+            # a_t, l_t = self.actor.predict_target(np.expand_dims(observation,axis=0))
+            a_t, l_t = self.actor.predict(np.expand_dims(observation,axis=0))
             target_q = self.saccritics.predict_target(np.expand_dims(observation,axis=0),
                                                       a_t)
 
@@ -139,7 +140,7 @@ class SAC(DDPG):
             debug:
         Returns:
         """
-        self.actor.update_target_network()
+        # self.actor.update_target_network()
         self.critic.update_target_network()
         self.critic_2.update_target_network()
         np.random.seed(self.config['training']['seed'])
@@ -207,7 +208,8 @@ class SAC(DDPG):
 
                     previous_observation = observation
                     rewards += np.power(self.gamma,n)*reward
-                action_t, logprob_t = self.actor.predict_target(np.expand_dims(observation, axis=0))
+                # action_t, logprob_t = self.actor.predict_target(np.expand_dims(observation, axis=0))
+                action_t, logprob_t = self.actor.predict(np.expand_dims(observation, axis=0))
                 target_q_single = self.saccritics.predict_target(np.expand_dims(observation, axis=0),
                                                                 action_t)
 
@@ -230,7 +232,8 @@ class SAC(DDPG):
                     a_batch, l_batch = np.vstack(al_batch[:,0]), np.vstack(al_batch[:,1])
 
                     print('s2_batch_is_nan',np.isnan(s2_batch).any())
-                    a2_t, l2_b = self.actor.predict_target(s2_batch)
+                    # a2_t, l2_b = self.actor.predict_target(s2_batch)
+                    a2_t, l2_b = self.actor.predict(s2_batch)
                     target_q = self.saccritics.predict_target(s2_batch, a2_t)
                     alpha = self.sess.run(self.saccritics.alpha)
                     print(target_q)
@@ -289,10 +292,11 @@ class SAC(DDPG):
                     grads = self.saccritics.action_logprob_gradients(s_batch, a_outs,l_outs)
                     # print(self.sess.run(self.saccritics.alpha))
                     if j % self.policy_delay == 0:
+                        # TODO: NEED USE IMPORTANCE SAMPLING, target_pi / behavior_pi
                         self.actor.train(s_batch, *grads)
 
                         # Update target networks
-                        self.actor.update_target_network()
+                        # self.actor.update_target_network()
                     self.critic.update_target_network()
                     self.critic_2.update_target_network()
 
@@ -356,7 +360,8 @@ class SAC(DDPG):
         if self.obs_normalizer:
             observation = self.obs_normalizer(observation)
 
-        action, logprob = self.actor.predict_target(np.expand_dims(observation, axis=0))
+        # action, logprob = self.actor.predict_target(np.expand_dims(observation, axis=0))
+        action, logprob = self.actor.predict(np.expand_dims(observation, axis=0))
         action = np.squeeze(action,axis=0)
         if self.action_processor:
             action = self.action_processor(action)

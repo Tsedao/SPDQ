@@ -79,7 +79,7 @@ class SACActor(object):
         action_dim = self.action_dim
         time_stamp = self.window_size
         feature_num = self.feature_number
-        delta = 1e-18
+        delta = 1e-15
         dtype = self.dtype
 
 
@@ -112,7 +112,7 @@ class SACActor(object):
             # mu = mu / tf.reduce_sum(mu, axis=-1,keepdims=True)
         with tf.name_scope('mixture_weights'):
             mw = tf.keras.layers.Dense(32,activation='relu')(out)
-            mixture_weights = tf.keras.layers.Dense(units=num_mixture,activation=None)(mw)
+            mixture_weights = tf.keras.layers.Dense(units=num_mixture,activation='sigmoid')(mw)
             mixture_weights = (mixture_weights+EPS_TF) / (tf.reduce_sum(mixture_weights, axis=-1,keepdims=True)+EPS_TF)
         # with tf.name_scope('tau'):
         #     log_tau = tf.keras.layers.Dense(32,activation='relu')(out)
