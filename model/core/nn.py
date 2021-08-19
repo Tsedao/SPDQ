@@ -201,7 +201,7 @@ class CNN(NeuralNetWork):
                         out_tmp = tf.keras.layers.SeparableConv1D(filters=init_filter_num*(k+1),
                                                                     kernel_size=kernel_size,strides=1,padding='causal',
                                                                   dilation_rate=dilation,data_format='channels_last')(in_asset)
-                        out_tmp = tf.keras.activations.relu(out_tmp)
+                        out_tmp = tf.keras.layers.LeakyReLU()(out_tmp)
                         out_tmp = tf.keras.layers.Dropout(rate=dropout)(out_tmp,training=self.training)
 
 
@@ -210,7 +210,7 @@ class CNN(NeuralNetWork):
                                                                   dilation_rate=dilation,data_format='channels_last')(out_tmp)
                         ## TO DO add weight-norm or regularization
 
-                        out_tmp = tf.keras.activations.relu(out_tmp)
+                        out_tmp = tf.keras.layers.LeakyReLU()(out_tmp)
                         out_tmp = tf.keras.layers.Dropout(rate=dropout)(out_tmp,training=self.training)
 
                         upsampling = tf.keras.layers.Conv1D(filters=init_filter_num*(k+1),kernel_size=1,strides=1,padding='causal')(in_asset)
@@ -281,7 +281,7 @@ class CNN(NeuralNetWork):
                 out = tf.keras.layers.Dense(1)(out)                              #[None, asset_num, 1]
                 out = tf.squeeze(out,axis=-1)
                 out = tf.keras.layers.BatchNormalization()(out, training=self.training)
-                out = tf.keras.activations.relu(out)
+                out = tf.keras.layers.LeakyReLU()(out)
                 out = tf.keras.layers.Dense(1)(out)                              #[None, 1]
                 network = out
             elif layer["type"] == "TCN_MHA_Out":
@@ -289,7 +289,7 @@ class CNN(NeuralNetWork):
                 out = tf.keras.layers.Dense(1)(out)                              #[None, asset_num, 1]
                 out = tf.squeeze(out,axis=-1)                                    #[None, asset_num]
                 out = tf.keras.layers.BatchNormalization()(out, training=self.training)
-                out = tf.keras.activations.relu(out)
+                out = tf.keras.layers.LeakyReLU()(out)
                 network = out
             else:
                 raise ValueError("the layer {} not supported.".format(layer["type"]))
