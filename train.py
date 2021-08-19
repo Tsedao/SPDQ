@@ -50,7 +50,7 @@ def get_path(mode,
              best=False,num_mixture=None):
 
     assert mode in ['weights', 'results']
-    assert model in ['ddpg', 'td3','d3pg','sac','qrsac','hiro']
+    assert model in ['ddpg', 'td3','d3pg','sac','qrsac','hiro','ppo']
 
     if best:
         model= 'best_'+model
@@ -210,7 +210,7 @@ if __name__ == '__main__':
 
     detrend = False
 
-    model_zoo = ['ddpg', 'td3','d3pg','sac','qrsac']
+    model_zoo = ['ddpg', 'td3','d3pg','sac','qrsac','ppo']
 
     stock_env_zoo = ['StockTradingEnv_v1',
                      'StockTradingEnv_v2',
@@ -269,6 +269,13 @@ if __name__ == '__main__':
     critic_learning_rate = config['training']['critic_learning_rate']
     batch_size = config['training']['batch_size']
     tau = config['training']['tau']        # frequency to update target net parameter
+
+    # PPO ConfigProto #
+    ppo_eps = config['training'].get('ppo_eps',None)
+    ent_coef = config['training'].get('ent_coef',None)
+    lam = config['training'].get('lam',0.5)
+    ###################
+
     episodes = config['training']['episode']
     device = config['training']['device']
     policy_delay = config['training'].get('policy_delay',None)
@@ -315,9 +322,9 @@ if __name__ == '__main__':
                                 beta = 0.0,
                                 name = stock_env)
 
-    actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(asset_number+1),sigma=1/(asset_number+1), theta=0.3)
+    #actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(asset_number+1),sigma=1/(asset_number+1), theta=0.3)
 
-    #actor_noise = lambda : 0
+    actor_noise = lambda : 0
 
     model_save_path = get_path(mode = 'weights',
                                model = this_model,
@@ -399,6 +406,21 @@ if __name__ == '__main__':
                                               layers = actor_layers,
                                               tau_softmax = tau_softmax,
                                               tau=tau, batch_size=batch_size,dtype=dtype)
+            elif this_model == 'ppo':
+                from model.ppo.stockactor import PPOActor
+                stock_actor = PPOActor(sess=sess,
+                                        config=config,
+                                        feature_number=feature_number,
+                                        action_dim=asset_number + 1,
+                                        window_size=window_size,
+                                        num_mixture=num_mixture,
+                                        ent_coef=ent_coef,
+                                        ppo_eps=ppo_eps,
+                                        learning_rate=actor_learning_rate,
+                                        layers=actor_layers,
+                                        tau_softmax = tau_softmax,
+                                        num_vars=0,
+                                        dtype=dtype)
             else:
                 from model.ddpg.stockactor import DDPGActor
                 stockactor = DDPGActor(sess, feature_number = feature_number,
@@ -434,6 +456,17 @@ if __name__ == '__main__':
                                                 num_actor_vars = stockactor.get_num_trainable_vars(),
                                                 layers = critic_layers,
                                                 tau=tau, batch_size=batch_size,dtype=dtype)
+            elif this_model == 'ppo':
+                from model.ppo.stockcritic import PPOCritic
+                stock_critic = PPOCritic(sess=sess,
+                                       config=config,
+                                       feature_number=feature_number,
+                                       action_dim=asset_number + 1,
+                                       window_size=window_size,
+                                       learning_rate=critic_learning_rate,
+                                       layers=critic_layers,
+                                       num_actor_vars=stock_actor.get_num_trainable_vars(),
+                                       dtype=dtype)
             else:
                 from model.ddpg.stockcritic import DDPGCritic
                 stockcritic = DDPGCritic(sess, feature_number = feature_number,
@@ -448,6 +481,7 @@ if __name__ == '__main__':
 
         if this_model == 'ddpg':
             from model.ddpg.ddpg import DDPG
+            actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(asset_number+1),sigma=1/(asset_number+1), theta=0.3)
             model = DDPG(env_training,env_validating ,sess, actor = stockactor,
                                              critic = stockcritic,
                                              obs_normalizer = obs_normalizer,
@@ -460,6 +494,7 @@ if __name__ == '__main__':
 
         elif this_model == 'd3pg':
             from model.d3pg.d3pg import D3PG
+            actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(asset_number+1),sigma=1/(asset_number+1), theta=0.3)
             model = D3PG(env_training,env_validating ,sess, actor = stockactor,
                                             critic = stockcritic,
                                             obs_normalizer = obs_normalizer,
@@ -468,6 +503,20 @@ if __name__ == '__main__':
                                             best_model_save_path = best_model_save_path,
                                             summary_path = summary_path,
                                             config = config)
+        elif this_model =='ppo':
+            from model.ppo.ppo import PPO
+            model = PPO(env=env_training,
+                           val_env=env_validating,
+                           sess=sess,
+                           actor=stock_actor,
+                           critic=stock_critic,
+                           actor_noise=actor_noise,
+                           obs_normalizer=obs_normalizer,
+                           config=config,
+                           lam=lam,
+                           model_save_path = model_save_path,
+                           best_model_save_path = best_model_save_path,
+                           summary_path = summary_path)
 
         elif this_model == 'td3' or this_model == 'sac':
             with tf.variable_scope('critic'):
@@ -481,6 +530,7 @@ if __name__ == '__main__':
                                                  tau=tau, batch_size=batch_size,dtype=dtype)
             if this_model == 'td3':
                 from model.td3.td3 import TD3
+                actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(asset_number+1),sigma=1/(asset_number+1), theta=0.3)
                 model = TD3(env_training, env_validating, sess,  actor = stockactor,
                                                  critic1 = stockcritic,
                                                  critic2 = stockcritic2,
@@ -516,7 +566,7 @@ if __name__ == '__main__':
                                              config = config)
         else:
             raise("Model not Implemented Error")
-        for rep in range(10):
+        for rep in range(1):
             model.initialize(load_weights=args.load_weights)
             model.train()
             if not os.path.exists('./reward_results/replica_%d'%(rep)):
