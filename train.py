@@ -9,10 +9,7 @@ def test_model(env, model, policy_delay):
     count = 0
     pre_action = None
     while not done:
-        action = pre_action
-
         action = model.predict_single(observation)
-        pre_action = action
         count += 1
         observation, _, done, _ = env.step(action)
 
@@ -566,7 +563,7 @@ if __name__ == '__main__':
                                              config = config)
         else:
             raise("Model not Implemented Error")
-        for rep in range(1):
+        for rep in range(5):
             model.initialize(load_weights=args.load_weights)
             model.train()
             if not os.path.exists('./reward_results/replica_%d'%(rep)):

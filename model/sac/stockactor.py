@@ -73,6 +73,8 @@ class SACActor(object):
 
         self.optimize = tf.train.AdamOptimizer(self.lr_schedule). \
             apply_gradients(zip([-1*g for g in self.actor_gradients], self.network_params),global_step=global_step)
+
+        self.inputs_grad = tf.gradients(self.scaled_out,self.inputs)
     def create_actor_network(self):
 
         num_mixture = self.num_mixture
@@ -238,3 +240,10 @@ class SACActor(object):
             # return tf.multiply(norm_const,exponential_term)
         else:
             raise NameError("The dimensions of the input don't match")
+
+    def cal_inputs_grad(self,inputs):
+        inputs = inputs[:, :, -self.window_size:, :]
+
+        return self.sess.run(self.inputs_grad, feed_dict={
+            self.inputs: inputs
+        })

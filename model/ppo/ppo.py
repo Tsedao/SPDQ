@@ -47,7 +47,7 @@ class PPO(DDPG):
 
         return summary_ops, summary_vars
 
-    def validate(self, epi_counter, verbose=True):
+    def validate_verbose(self, epi_counter, verbose=True):
         """
         Do validation on val env
         Args
