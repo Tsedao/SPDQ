@@ -11,25 +11,32 @@ python train.py -w=[window size]
                 -e=[num. episode]
                 -s=[num. steps in one episode]
                 -v=[StockTradingEnv number]
+                -r=[stock region 'us' or 'cn']
                 --device=[cpu or gpu]
                 --gpu=[which gpu to use]
 ```
+## Use Trained model
+Please check the notebook.
 
-## Docker Stuff
+## Deploy model to Docker
 Build Docker image from Dockerfile
 ```
-docker build -t myimage:latest .
+docker build -t finrl:latest .
 ```
 Run Docker Container
 ```
-docker run -v /Users/songzitao/Projects/RL/Data/:/usr/src/Data
-           -ti myimage:latest /bin/bash
+docker run -v .../results/:/home/results \
+           -v .../weights/:/home/weights \
+           -v .../reward_results/:/home/reward_results \
+           -p 6006:6006 \
+           --gpus all \
+           -ti finrl:latest /bin/bash
 ```
 Export Docker image
 ```
-docker save myimage:latest | gzip > myimage_latest.tar.gz
+docker save finrl:latest | gzip > finrl.tar.gz
 ```
 Loaded Saved Docker image
 ```
-docker image load -i myimage_latest.tar.gz
+docker image load -i finrl.tar.gz
 ```
